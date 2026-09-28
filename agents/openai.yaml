@@ -1,0 +1,3 @@
+interface:
+  display_name: "Double-Loop TDD"
+  short_description: "Outer acceptance test, inner unit red-green loops"
