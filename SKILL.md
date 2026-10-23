@@ -29,6 +29,7 @@ write ONE failing acceptance test (outer, red) ───────────
 ```
 
 1. **Pick one behavior** from the spec and write its acceptance test. A parametrized scenario (a BDD Scenario Outline with an Examples table, a table-driven test) counts as one. Run it and confirm it fails.
+   - **The outer loop always starts with a `.feature` file in the repository.** Write the Gherkin scenario into a `.feature` file next to where its step definitions will live, before any step definition or production code. A scenario that exists only in a ticket, a document or the chat has not started the outer loop. Then write the step definitions, and run the scenario red.
 2. **Read the failure.** It tells you the first missing piece. That piece is the next inner-loop slice.
 3. **Inner loop.** One unit test, red, then the minimum code, green. Repeat, one slice at a time.
 4. **After each inner green, re-run the acceptance test.** A new failure message means progress; it points at the next slice.
