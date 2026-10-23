@@ -474,11 +474,31 @@ ${edges.join("\n")}
     });
     try {
       await viewer.importXML(xml);
-      viewer.get("canvas").zoom("fit-viewport");
     } catch (error) {
       canvasElement.replaceChildren(element(document, "p", "bpmn-fallback", `The BPMN XML did not render: ${error.message}`));
+      return null;
     }
+    fitWhenSized(viewer, canvasElement);
     return viewer;
+  }
+
+  function fitBpmn(viewer, canvasElement) {
+    if (!viewer || canvasElement.clientWidth === 0 || canvasElement.clientHeight === 0) return false;
+    try {
+      viewer.get("canvas").zoom("fit-viewport");
+      return true;
+    } catch (error) {
+      console.warn(`Could not fit the BPMN diagram: ${error.message}`);
+      return false;
+    }
+  }
+
+  function fitWhenSized(viewer, canvasElement) {
+    if (fitBpmn(viewer, canvasElement) || typeof root.ResizeObserver === "undefined") return;
+    const observer = new root.ResizeObserver(() => {
+      if (fitBpmn(viewer, canvasElement)) observer.disconnect();
+    });
+    observer.observe(canvasElement);
   }
 
   function renderTableOfContents(document, tocElement) {
@@ -521,7 +541,7 @@ ${edges.join("\n")}
     byId("bpmn-xml").value = xml;
     let viewer = null;
     renderBpmn(document, xml, byId("bpmn-canvas")).then(created => { viewer = created; });
-    byId("bpmn-fit").addEventListener("click", () => viewer?.get("canvas").zoom("fit-viewport"));
+    byId("bpmn-fit").addEventListener("click", () => fitBpmn(viewer, byId("bpmn-canvas")));
     byId("bpmn-copy").addEventListener("click", event => {
       const button = event.currentTarget;
       root.navigator.clipboard.writeText(xml).then(
