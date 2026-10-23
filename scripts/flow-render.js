@@ -481,6 +481,16 @@ ${edges.join("\n")}
     return viewer;
   }
 
+  function renderTableOfContents(document, tocElement) {
+    for (const section of document.querySelectorAll("section[id$='-section']")) {
+      if (section.hidden) continue;
+      const heading = section.querySelector("h2");
+      const link = element(document, "a", "", heading.textContent);
+      link.href = `#${section.id}`;
+      tocElement.append(link);
+    }
+  }
+
   function mount(model, document) {
     const byId = id => document.getElementById(id);
     byId("flow-title").textContent = model.title;
@@ -495,6 +505,8 @@ ${edges.join("\n")}
       byId("story-section").hidden = true;
     }
 
+    if (root.DddViews) root.DddViews.render(model, document);
+
     if (model.board) {
       renderLegend(document, byId("legend"));
       renderBoard(document, model.board, byId("board"), byId("detail"));
@@ -502,10 +514,9 @@ ${edges.join("\n")}
       byId("board-section").hidden = true;
     }
 
-    if (!model.bpmn) {
-      byId("bpmn-section").hidden = true;
-      return;
-    }
+    if (!model.bpmn) byId("bpmn-section").hidden = true;
+    renderTableOfContents(document, byId("toc"));
+    if (!model.bpmn) return;
     const xml = buildBpmnXml(model.bpmn);
     byId("bpmn-xml").value = xml;
     let viewer = null;

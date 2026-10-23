@@ -1,9 +1,11 @@
 ---
 name: visualize-flow
-description: Draw a flow from the code (a lambda chain, an event flow, a cron, a sync, a use case) as an EventStorming board and a BPMN diagram, both built from one flow JSON file kept in the repo. Use when the user wants a flow visualized, mapped, or drawn as EventStorming or BPMN.
+description: Draw a flow from the code (a lambda chain, an event flow, a cron, a sync, a use case) as one page with every DDD view (core domain chart, context map, bounded context canvases, domain story, EventStorming board, domain message flow, aggregate design canvases) plus BPMN, all built from one flow JSON file. Use when the user wants a flow visualized, mapped, or drawn as EventStorming, BPMN or a context map.
 ---
 
-One **flow file** (`<flow>.flow.json`) is the single source of truth. `scripts/build.js` turns it into a `.bpmn` file and a self-contained HTML page with both views. The format is in [FORMAT.md](FORMAT.md); read it before writing the file.
+One **flow file** (`<flow>.flow.json`) is the single source of truth. `scripts/build.js` turns it into one self-contained HTML page with every view. The format is in [FORMAT.md](FORMAT.md); read it before writing the file.
+
+**Write nothing into the repo.** The flow file and the page live in the scratch directory. The published page embeds the flow file, so it can always be recovered with `scripts/extract.js`.
 
 ## Steps
 
@@ -15,24 +17,26 @@ One **flow file** (`<flow>.flow.json`) is the single source of truth. `scripts/b
    - domain event, with its real name from the code;
    - policy ("whenever X, do Y"), including retries and scheduled jobs;
    - external system called;
+   - bounded context crossed, and which side depends on which;
+   - state each aggregate moves through;
    - failure path, from the error to whatever reacts to it.
 
    Collect **hotspots** as you go: a behavior that surprised you, a silent skip, a flag that changes the path, an inconsistency. These are the most valuable stickies on the board.
 
-3. **Write the flow file.** Save it next to the docs of the feature, for example `docs/features/<feature>/<flow>.flow.json`. If the repo has no `docs/` folder, ask the user where it goes. Write the `story` first: if you cannot tell the flow in a paragraph and six steps, go back to step 2. Then fill the `board` and the `bpmn` sections. Every sticky with a code counterpart carries `ref`, the repo-relative file path. Use the names from the repo's glossary when it has one.
+3. **Write the flow file** at `<scratch-dir>/flows/<flow>.flow.json`. Write the `story` first: if you cannot tell the flow in a paragraph and six steps, go back to step 2. Then fill every section in FORMAT.md. Every sticky with a code counterpart carries `ref`, the repo-relative file path. Use the names from the repo's glossary when it has one. Mark judgment calls (core domain chart positions, strategic classification) as estimates in the text.
 
 4. **Build.** Run:
 
    ```bash
-   node <skill-dir>/scripts/build.js docs/features/<feature>/<flow>.flow.json --html <scratch-dir>/<flow>.html
+   node <skill-dir>/scripts/build.js <scratch-dir>/flows/<flow>.flow.json --html <scratch-dir>/<flow>.html
    ```
 
-   The `.bpmn` lands next to the JSON. Fix every `error` and rerun. A `warning` about a backward flow means a loop: replace it with a pair of link events (a throw and a catch with the same `name`).
+   Fix every `error` and rerun. A `warning` about a backward flow means a loop: replace it with a pair of link events (a throw and a catch with the same `name`). Add `--bpmn <path>` only when the user asks for a `.bpmn` file.
 
 5. **Publish.** When an Artifact tool is available, publish the HTML page and give the user the link. Otherwise give the path of the HTML file.
 
-6. **Report.** Give the user the paths of the `.flow.json` and the `.bpmn` and the link. List the hotspots in one line each. Leave the files uncommitted: the user commits them.
+6. **Report.** Give the user the link and list the hotspots in one line each.
 
 ## Updating a flow
 
-Edit the existing `.flow.json`, then rerun step 4. The board and the BPMN both come from that file, so one edit updates both.
+Edit the flow file in the scratch directory and rerun step 4. When it is gone, read the published page (with the Artifact tool's `read` action) and run `node <skill-dir>/scripts/extract.js <saved-page.html> <scratch-dir>/flows/<flow>.flow.json` to get it back.

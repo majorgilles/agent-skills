@@ -13,7 +13,107 @@ A flow file is JSON. `examples/order-checkout.flow.json` is a complete small exa
 }
 ```
 
-`read_on` is the date you read the code. `board` and `bpmn` are each optional, but a flow normally has both.
+`read_on` is the date you read the code. Every section is optional; the page hides a missing one. The page shows them in this order:
+
+| Key | View | Answers |
+|---|---|---|
+| `story` | In short | What the flow does, in 30 seconds. |
+| `core_domain_chart` | Core domain chart | Which subdomains set the business apart. |
+| `context_map` | Context map | Which bounded contexts the flow crosses, and who depends on whom. |
+| `context_canvases` | Bounded context canvases | What each context is for, receives, sends and calls things. |
+| `domain_story` | Domain story | Who does what with which work object, in business words. |
+| `board` | EventStorming board | Events, commands, policies and hotspots on a timeline. |
+| `message_flow` | Domain message flow | Which messages cross context boundaries, in order. |
+| `aggregates` | Aggregate design canvases | What each aggregate guards, and its lifecycle. |
+| `bpmn` | BPMN 2.0 | The precise process, for review. |
+
+## `core_domain_chart`
+
+```json
+"core_domain_chart": {
+  "subdomains": [
+    { "name": "Invoicing", "differentiation": 3.5, "complexity": 6.5, "in_flow": true, "note": "Optional line under the chart." }
+  ]
+}
+```
+
+Both axes run from 0 to 10. Differentiation above 6.67 is core, between 3.33 and 6.67 supporting, below that generic. These are estimates: say so in a `note` when it matters. Keep points at least 1.5 apart on one axis, or their labels overlap.
+
+## `context_map`
+
+```json
+"context_map": {
+  "contexts": [
+    { "id": "contract", "name": "Contract", "kind": "core", "in_flow": true, "column": 1, "row": 1, "note": "Optional." }
+  ],
+  "relationships": [
+    { "upstream": "twikey", "downstream": "contract", "kind": "upstream-downstream",
+      "upstream_roles": ["OHS"], "downstream_roles": ["ACL"], "label": "twikey_integration" }
+  ]
+}
+```
+
+- `kind` of a context: `core`, `supporting`, `generic`, `external` or `legacy`.
+- `kind` of a relationship: `upstream-downstream`, `customer-supplier`, `partnership`, `shared-kernel` or `separate-ways`.
+- Roles: `OHS` (Open Host Service), `PL` (Published Language), `ACL` (Anticorruption Layer), `CF` (Conformist).
+- Put the context at the center of the flow in the middle of the grid, its partners around it. Keep diagonal neighbours: straight vertical lines between adjacent rows leave little room for labels.
+- `"in_flow": false` on a relationship draws it faded.
+
+## `context_canvases`
+
+One canvas per bounded context you own, after the Bounded Context Canvas by the DDD Crew.
+
+```json
+{ "context": "contract", "purpose": "One or two sentences.",
+  "classification": { "domain": "core", "business_model": "revenue generator", "evolution": "custom built" },
+  "roles": ["Execution: runs the daily billing cycle"],
+  "inbound": [{ "kind": "command", "name": "Create cost", "from": "Cost sources" }],
+  "outbound": [{ "kind": "query", "name": "Company", "to": "Contact" }],
+  "language": [{ "term": "InvoiceSection", "meaning": "One block of charges ready to bill." }],
+  "decisions": ["A business rule the context enforces."],
+  "questions": ["An open question or a hotspot."] }
+```
+
+`kind` of a message is `command`, `event` or `query`.
+
+## `domain_story`
+
+Numbered sentences of the form actor, activity, work object, and optionally a target actor.
+
+```json
+"domain_story": {
+  "actors": [{ "id": "lizy", "name": "Lizy platform", "kind": "system" }],
+  "sentences": [{ "actor": "lizy", "activity": "books", "object": "Invoice", "preposition": "in", "target": "exact", "note": "Optional." }]
+}
+```
+
+Actor `kind` is `person`, `group` or `system`. `preposition` defaults to "to". Write activities in business words, not code names.
+
+## `message_flow`
+
+```json
+"message_flow": {
+  "contexts": ["cost_sources", "contract", "twikey"],
+  "messages": [{ "from": "contract", "to": "twikey", "kind": "command", "name": "Create invoice", "note": "Optional." }]
+}
+```
+
+`contexts` are the columns, left to right, using `context_map` ids. A message from a context to itself draws a loop.
+
+## `aggregates`
+
+One canvas per aggregate, after the Aggregate Design Canvas by the DDD Crew, with its lifecycle drawn as a state diagram.
+
+```json
+{ "name": "Invoice", "context": "contract", "description": "Optional.",
+  "initial": "pending",
+  "states": [{ "id": "pending", "name": "PENDING", "column": 0, "row": 0, "final": false }],
+  "transitions": [{ "from": "pending", "to": "exported", "label": "exported to Twikey" }],
+  "commands": [], "events": [], "invariants": [], "corrective_policies": [],
+  "throughput": ["Optional."], "size": ["Optional."] }
+```
+
+States sit on a grid like BPMN nodes. Two independent statuses on one aggregate go on separate rows.
 
 ## `story`: the 30-second read
 
