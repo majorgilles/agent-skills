@@ -93,9 +93,12 @@
   function validate(model) {
     const errors = [];
     if (!model.title) errors.push("Missing title.");
+    if (model.story && !(model.story.text && Array.isArray(model.story.steps) && model.story.steps.length)) {
+      errors.push("story needs a text and at least one step.");
+    }
     if (!model.board && !model.bpmn) errors.push("A flow needs a board, a bpmn section, or both.");
     if (model.board) validateBoard(model.board, errors);
-    if (!model.bpmn) return { errors, warnings: [] };
+    if (!model.bpmn) return { errors, warnings: model.story ? [] : ["No story. Add one: it is the first thing a reader sees."] };
 
     const bpmn = model.bpmn;
     const errorsBeforeBpmn = errors.length;
@@ -115,6 +118,7 @@
     if (errors.length > errorsBeforeBpmn) return { errors, warnings: [] };
 
     const warnings = [];
+    if (!model.story) warnings.push("No story. Add one: it is the first thing a reader sees.");
     const placed = layout(bpmn);
     const cells = {};
     for (const node of bpmn.nodes) {
@@ -483,6 +487,13 @@ ${edges.join("\n")}
     byId("flow-summary").textContent = model.summary || "";
     const provenance = [model.source && `Source: ${model.source}`, model.read_on && `Read from the code on ${model.read_on}`].filter(Boolean);
     byId("flow-provenance").textContent = provenance.join(" · ");
+
+    if (model.story) {
+      byId("story-text").textContent = model.story.text;
+      for (const step of model.story.steps) byId("story-steps").append(element(document, "li", "", step));
+    } else {
+      byId("story-section").hidden = true;
+    }
 
     if (model.board) {
       renderLegend(document, byId("legend"));

@@ -46,6 +46,11 @@ section { display: grid; gap: 12px; }
 .section-head { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; justify-content: space-between; }
 .section-head > div { display: grid; gap: 4px; max-width: 72ch; min-width: 0; }
 
+.story { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 20px 24px; max-width: 80ch; }
+.story p { margin: 0; }
+.story ol { margin: 0; padding-left: 22px; display: grid; gap: 6px; }
+.story li::marker { font-family: var(--font-sticky); font-weight: 700; color: var(--muted); }
+
 .legend { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--muted); }
 .legend i { width: 18px; height: 18px; border-radius: 2px; display: inline-block; box-shadow: 0 1px 2px rgb(0 0 0 / 0.2); }
@@ -112,6 +117,12 @@ section { display: grid; gap: 12px; }
     <p id="flow-summary"></p>
     <p class="provenance" id="flow-provenance"></p>
   </header>
+
+  <section id="story-section" class="story" aria-labelledby="story-title">
+    <h2 id="story-title">In short</h2>
+    <p id="story-text"></p>
+    <ol id="story-steps"></ol>
+  </section>
 
   <section id="board-section" aria-labelledby="board-title">
     <div class="section-head">

@@ -7,12 +7,31 @@ A flow file is JSON. `examples/order-checkout.flow.json` is a complete small exa
   "title": "Order checkout",
   "summary": "One or two sentences: what the flow does and who it is for.",
   "read_on": "2026-10-23",
+  "story": { ... },
   "board": { ... },
   "bpmn": { ... }
 }
 ```
 
-`read_on` is the date you read the code. Both `board` and `bpmn` are optional, but a flow normally has both.
+`read_on` is the date you read the code. `board` and `bpmn` are each optional, but a flow normally has both.
+
+## `story`: the 30-second read
+
+The page opens with it. A reader who knows nothing about the flow should understand its shape from the story alone.
+
+```json
+"story": {
+  "text": "A cron reads each partner feed into PartnerVehicle rows. Two paths then turn those rows into vehicles.",
+  "steps": [
+    "Every 20 minutes, source_vehicles_cron sends one message per partner.",
+    "source_vehicles reads the feed and creates or updates a PartnerVehicle per vehicle."
+  ]
+}
+```
+
+- `text`: two or three sentences. What starts the flow, what it produces, and who cares about the result.
+- `steps`: 4 to 6 steps, in order, one sentence each. Name the real lambda, event or status from the code.
+- Leave the hotspots out. The board carries them.
 
 ## `board`: the EventStorming view
 

@@ -2,6 +2,15 @@
   "title": "Order Checkout",
   "summary": "A small example flow: a customer places an order, a worker charges the card, and the warehouse is told to ship.",
   "read_on": "2026-10-23",
+  "story": {
+    "text": "A customer places an order through the API. A worker charges the card with Stripe and, when the payment goes through, asks the warehouse to ship.",
+    "steps": [
+      "The API saves the order with status PENDING and publishes ORDER_PLACED.",
+      "The payment worker reacts to ORDER_PLACED and charges the card with Stripe.",
+      "When Stripe accepts the payment, the worker publishes PAYMENT_CAPTURED and requests a shipment.",
+      "When Stripe declines it, the worker publishes PAYMENT_DECLINED and the order stops there."
+    ]
+  },
   "board": {
     "phases": [
       { "id": "place", "name": "Customer orders" },

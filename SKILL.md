@@ -19,7 +19,7 @@ One **flow file** (`<flow>.flow.json`) is the single source of truth. `scripts/b
 
    Collect **hotspots** as you go: a behavior that surprised you, a silent skip, a flag that changes the path, an inconsistency. These are the most valuable stickies on the board.
 
-3. **Write the flow file.** Save it next to the docs of the feature, for example `docs/features/<feature>/<flow>.flow.json`. If the repo has no `docs/` folder, ask the user where it goes. Fill both the `board` and the `bpmn` sections. Every sticky with a code counterpart carries `ref`, the repo-relative file path. Use the names from the repo's glossary when it has one.
+3. **Write the flow file.** Save it next to the docs of the feature, for example `docs/features/<feature>/<flow>.flow.json`. If the repo has no `docs/` folder, ask the user where it goes. Write the `story` first: if you cannot tell the flow in a paragraph and six steps, go back to step 2. Then fill the `board` and the `bpmn` sections. Every sticky with a code counterpart carries `ref`, the repo-relative file path. Use the names from the repo's glossary when it has one.
 
 4. **Build.** Run:
 
