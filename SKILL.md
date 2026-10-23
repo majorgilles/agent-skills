@@ -1,6 +1,6 @@
 ---
 name: visualize-flow
-description: Draw a flow from the code (a lambda chain, an event flow, a cron, a sync, a use case) as one page with every DDD view (core domain chart, context map, bounded context canvases, domain story, EventStorming board, domain message flow, aggregate design canvases) plus BPMN, all built from one flow JSON file. Use when the user wants a flow visualized, mapped, or drawn as EventStorming, BPMN or a context map.
+description: Draw a flow from the code (a lambda chain, an event flow, a cron, a sync, a use case) as one page with a core domain chart, a context map, a domain story, an EventStorming board and a BPMN diagram, all built from one flow JSON file. Use when the user wants a flow visualized, mapped, or drawn as EventStorming, BPMN or a context map.
 ---
 
 One **flow file** (`<flow>.flow.json`) is the single source of truth. `scripts/build.js` turns it into one self-contained HTML page with every view. The format is in [FORMAT.md](FORMAT.md); read it before writing the file.
@@ -18,12 +18,11 @@ One **flow file** (`<flow>.flow.json`) is the single source of truth. `scripts/b
    - policy ("whenever X, do Y"), including retries and scheduled jobs;
    - external system called;
    - bounded context crossed, and which side depends on which;
-   - state each aggregate moves through;
    - failure path, from the error to whatever reacts to it.
 
    Collect **hotspots** as you go: a behavior that surprised you, a silent skip, a flag that changes the path, an inconsistency. These are the most valuable stickies on the board.
 
-3. **Write the flow file** at `<scratch-dir>/flows/<flow>.flow.json`. Write the `story` first: if you cannot tell the flow in a paragraph and six steps, go back to step 2. Then fill every section in FORMAT.md. Every sticky with a code counterpart carries `ref`, the repo-relative file path. Use the names from the repo's glossary when it has one. Mark judgment calls (core domain chart positions, strategic classification) as estimates in the text.
+3. **Write the flow file** at `<scratch-dir>/flows/<flow>.flow.json`. Write the `story` first: if you cannot tell the flow in a paragraph and six steps, go back to step 2. Then fill every section in FORMAT.md. Every sticky with a code counterpart carries `ref`, the repo-relative file path. Use the names from the repo's glossary when it has one. Mark judgment calls, such as core domain chart positions and context kinds, as estimates in a `note`.
 
 4. **Build.** Run:
 

@@ -20,11 +20,8 @@ A flow file is JSON. `examples/order-checkout.flow.json` is a complete small exa
 | `story` | In short | What the flow does, in 30 seconds. |
 | `core_domain_chart` | Core domain chart | Which subdomains set the business apart. |
 | `context_map` | Context map | Which bounded contexts the flow crosses, and who depends on whom. |
-| `context_canvases` | Bounded context canvases | What each context is for, receives, sends and calls things. |
 | `domain_story` | Domain story | Who does what with which work object, in business words. |
 | `board` | EventStorming board | Events, commands, policies and hotspots on a timeline. |
-| `message_flow` | Domain message flow | Which messages cross context boundaries, in order. |
-| `aggregates` | Aggregate design canvases | What each aggregate guards, and its lifecycle. |
 | `bpmn` | BPMN 2.0 | The precise process, for review. |
 
 ## `core_domain_chart`
@@ -59,23 +56,6 @@ Both axes run from 0 to 10. Differentiation above 6.67 is core, between 3.33 and
 - Put the context at the center of the flow in the middle of the grid, its partners around it. Keep diagonal neighbours: straight vertical lines between adjacent rows leave little room for labels.
 - `"in_flow": false` on a relationship draws it faded.
 
-## `context_canvases`
-
-One canvas per bounded context you own, after the Bounded Context Canvas by the DDD Crew.
-
-```json
-{ "context": "contract", "purpose": "One or two sentences.",
-  "classification": { "domain": "core", "business_model": "revenue generator", "evolution": "custom built" },
-  "roles": ["Execution: runs the daily billing cycle"],
-  "inbound": [{ "kind": "command", "name": "Create cost", "from": "Cost sources" }],
-  "outbound": [{ "kind": "query", "name": "Company", "to": "Contact" }],
-  "language": [{ "term": "InvoiceSection", "meaning": "One block of charges ready to bill." }],
-  "decisions": ["A business rule the context enforces."],
-  "questions": ["An open question or a hotspot."] }
-```
-
-`kind` of a message is `command`, `event` or `query`.
-
 ## `domain_story`
 
 Numbered sentences of the form actor, activity, work object, and optionally a target actor.
@@ -88,50 +68,6 @@ Numbered sentences of the form actor, activity, work object, and optionally a ta
 ```
 
 Actor `kind` is `person`, `group` or `system`. `preposition` defaults to "to". Write activities in business words, not code names.
-
-## `message_flow`
-
-```json
-"message_flow": {
-  "contexts": ["cost_sources", "contract", "twikey"],
-  "messages": [{ "from": "contract", "to": "twikey", "kind": "command", "name": "Create invoice", "note": "Optional." }]
-}
-```
-
-`contexts` are the columns, left to right, using `context_map` ids. A message from a context to itself draws a loop.
-
-## `aggregates`
-
-One canvas per aggregate, after the Aggregate Design Canvas by the DDD Crew, with its lifecycle drawn as a state diagram.
-
-```json
-{ "name": "Invoice", "context": "contract", "description": "Optional.",
-  "initial": "pending",
-  "states": [{ "id": "pending", "name": "PENDING", "column": 0, "row": 0, "final": false }],
-  "transitions": [{ "from": "pending", "to": "exported", "label": "exported to Twikey" }],
-  "commands": [], "events": [], "invariants": [], "corrective_policies": [],
-  "throughput": ["Optional."], "size": ["Optional."] }
-```
-
-States sit on a grid like BPMN nodes. Two independent statuses on one aggregate go on separate rows.
-
-## `story`: the 30-second read
-
-The page opens with it. A reader who knows nothing about the flow should understand its shape from the story alone.
-
-```json
-"story": {
-  "text": "A cron reads each partner feed into PartnerVehicle rows. Two paths then turn those rows into vehicles.",
-  "steps": [
-    "Every 20 minutes, source_vehicles_cron sends one message per partner.",
-    "source_vehicles reads the feed and creates or updates a PartnerVehicle per vehicle."
-  ]
-}
-```
-
-- `text`: two or three sentences. What starts the flow, what it produces, and who cares about the result.
-- `steps`: 4 to 6 steps, in order, one sentence each. Name the real lambda, event or status from the code.
-- Leave the hotspots out. The board carries them.
 
 ## `board`: the EventStorming view
 

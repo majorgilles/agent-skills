@@ -10,7 +10,6 @@
   --event: #ffa552; --command: #8fcdf5; --aggregate: #ffe27a; --actor: #fff4b8;
   --policy: #cdb0f0; --external: #f6a9c8; --readmodel: #aee6a4; --hotspot: #ff5d7d; --ink: #1d1d1b;
   --core: #ffc97a; --supporting: #b9daf2; --generic: #dfe3dc; --legacy: #d9cbb8;
-  --command-ink: #1f6fa8; --event-ink: #b85d0e; --readmodel-ink: #2f7d2a; --accent: #1f2420;
   --font-sticky: "Kalam", "Comic Sans MS", "Segoe Print", cursive;
   --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
@@ -22,7 +21,6 @@
     --event: #e8914a; --command: #7db8de; --aggregate: #e6cb68; --actor: #e3d79f;
     --policy: #b89ad9; --external: #dd94b2; --readmodel: #98cf8f; --hotspot: #e6526f;
     --core: #e0a95a; --supporting: #86b5d6; --generic: #aab3a6; --legacy: #b8a68e;
-    --command-ink: #7db8de; --event-ink: #f0a465; --readmodel-ink: #98cf8f; --accent: #e5e9e4;
     color-scheme: dark;
   }
 }
@@ -32,7 +30,6 @@
   --event: #e8914a; --command: #7db8de; --aggregate: #e6cb68; --actor: #e3d79f;
   --policy: #b89ad9; --external: #dd94b2; --readmodel: #98cf8f; --hotspot: #e6526f;
   --core: #e0a95a; --supporting: #86b5d6; --generic: #aab3a6; --legacy: #b8a68e;
-  --command-ink: #7db8de; --event-ink: #f0a465; --readmodel-ink: #98cf8f; --accent: #e5e9e4;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -147,37 +144,6 @@ section { display: grid; gap: 12px; }
 .diagram .badge { fill: var(--panel); stroke: var(--fg); stroke-width: 1.4; }
 .diagram .badge-text { font-size: 11px; font-weight: 700; }
 .diagram .role-text { font-size: 10px; font-weight: 600; paint-order: stroke; stroke: var(--panel); stroke-width: 4px; }
-.diagram .lifeline { stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 4 4; }
-.diagram .lane-head { fill: var(--board); stroke: var(--fg); stroke-width: 1.2; }
-.diagram .lane-head-text { font-weight: 600; }
-.diagram .message { fill: none; stroke-width: 2; }
-.diagram .message.command { stroke: var(--command-ink); }
-.diagram .message.query { stroke: var(--readmodel-ink); }
-.diagram .message.event { stroke: var(--event-ink); stroke-dasharray: 6 4; }
-.diagram .message-label { font-size: 11.5px; paint-order: stroke; stroke: var(--panel); stroke-width: 4px; }
-.diagram .state { fill: var(--board); stroke: var(--fg); stroke-width: 1.5; }
-.diagram .state.final { stroke-width: 3; }
-.diagram .state-name { font-weight: 600; }
-.diagram .transition { stroke: var(--fg); stroke-width: 1.4; fill: none; }
-.diagram .transition-label { font-size: 11px; fill: var(--muted); paint-order: stroke; stroke: var(--panel); stroke-width: 4px; }
-.diagram .initial { fill: var(--fg); }
-.chip { display: inline-block; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; color: var(--ink); }
-.chip.command { background: var(--command); }
-.chip.event { background: var(--event); }
-.chip.query { background: var(--readmodel); }
-.canvas-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px; }
-.canvas-grid.tight { gap: 12px 20px; }
-.canvas { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px 18px; display: grid; gap: 12px; align-content: start; min-width: 0; }
-.canvas h3 { margin: 0; font-family: var(--font-sticky); font-size: 1.35rem; line-height: 1.15; }
-.canvas p { margin: 0; }
-.canvas-field { display: grid; gap: 4px; min-width: 0; }
-.canvas-field h4 { margin: 0; font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-.canvas-field ul { margin: 0; padding-left: 18px; display: grid; gap: 3px; }
-.canvas-field ul.messages { list-style: none; padding-left: 0; }
-.language { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 4px 10px; }
-.language dt { font-weight: 600; }
-.language dd { margin: 0; }
-.aggregate-list { display: grid; gap: 16px; }
 .story-board { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; display: grid; gap: 10px; }
 .story-sentence { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .story-number { width: 26px; height: 26px; border-radius: 50%; background: var(--fg); color: var(--panel); display: inline-grid; place-items: center; font-weight: 700; font-size: 0.8rem; flex: none; }
@@ -217,12 +183,6 @@ section { display: grid; gap: 12px; }
     <div id="context-map-body"></div>
   </section>
 
-  <section id="context-canvases-section" aria-labelledby="context-canvases-title">
-    <h2 id="context-canvases-title">Bounded context canvases</h2>
-    <p class="answers"><b>Answers:</b> what each context is for, what it receives and sends, and the words it uses.</p>
-    <div id="context-canvases-body"></div>
-  </section>
-
   <section id="domain-story-section" aria-labelledby="domain-story-title">
     <h2 id="domain-story-title">Domain story</h2>
     <p class="answers"><b>Answers:</b> who does what with which work object, in the business's own words.</p>
@@ -239,18 +199,6 @@ section { display: grid; gap: 12px; }
     <div class="legend" id="legend" aria-label="Sticky colors"></div>
     <div class="board-scroll"><div class="board" id="board"></div></div>
     <div class="panel" id="detail" aria-live="polite"><p class="hint">Select a sticky to see its details.</p></div>
-  </section>
-
-  <section id="message-flow-section" aria-labelledby="message-flow-title">
-    <h2 id="message-flow-title">Domain message flow</h2>
-    <p class="answers"><b>Answers:</b> which commands, events and queries cross context boundaries, and in what order.</p>
-    <div id="message-flow-body"></div>
-  </section>
-
-  <section id="aggregates-section" aria-labelledby="aggregates-title">
-    <h2 id="aggregates-title">Aggregate design canvases</h2>
-    <p class="answers"><b>Answers:</b> what each aggregate guards, its lifecycle, and the commands and events it handles.</p>
-    <div id="aggregates-body"></div>
   </section>
 
   <section id="bpmn-section" aria-labelledby="bpmn-title">

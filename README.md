@@ -1,11 +1,10 @@
 # Visualize Flow Skill
 
-An agent skill that reads a flow in your codebase (a lambda chain, an event flow, a cron, a sync) and draws it as one page with every view Domain-Driven Design uses:
+An agent skill that reads a flow in your codebase (a lambda chain, an event flow, a cron, a sync) and draws it as one page with several views:
 
 - a short **story** of the flow;
 - a **core domain chart** and a **context map**, with upstream, downstream and integration roles;
-- **bounded context canvases** and **aggregate design canvases**, with each aggregate's lifecycle;
-- a **domain story** and a **domain message flow**;
+- a **domain story**: who does what with which work object, in business words;
 - an **EventStorming board**: colored sticky notes on a timeline, with hotspots;
 - a **BPMN 2.0 diagram**, exportable to Camunda Modeler or demo.bpmn.io.
 
@@ -36,7 +35,7 @@ This writes a self-contained HTML page. Add `--bpmn <path>` to also write the `.
 | `SKILL.md` | The steps the agent follows. |
 | `FORMAT.md` | The flow file format. |
 | `scripts/flow-render.js` | Story, board and BPMN: validation, grid layout, BPMN XML and page wiring. Runs in Node and in the browser. |
-| `scripts/ddd-views.js` | Core domain chart, context map, canvases, domain story and message flow. Runs in Node and in the browser. |
+| `scripts/ddd-views.js` | Core domain chart, context map and domain story. Runs in Node and in the browser. |
 | `scripts/build.js` | Command line: validates a flow file and writes the HTML page, and the `.bpmn` on request. |
 | `scripts/extract.js` | Command line: recovers the flow file from a page built by the skill. |
 | `scripts/template.html` | The page design. |
