@@ -1,0 +1,154 @@
+<title>{{TITLE}}</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a whiteboard. Phases run left to right as columns, lanes run top to bottom; the BPMN diagram sits below. */
+:root {
+  --bg: #eef0ee; --board: #f8f9f7; --dot: #d3d8d2; --fg: #1f2420; --muted: #5d665f; --line: #c9cfc8;
+  --panel: #ffffff; --arrow: #8a948b;
+  --event: #ffa552; --command: #8fcdf5; --aggregate: #ffe27a; --actor: #fff4b8;
+  --policy: #cdb0f0; --external: #f6a9c8; --readmodel: #aee6a4; --hotspot: #ff5d7d; --ink: #1d1d1b;
+  --font-sticky: "Kalam", "Comic Sans MS", "Segoe Print", cursive;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161a17; --board: #1d221e; --dot: #2f3731; --fg: #e5e9e4; --muted: #9aa49b; --line: #333b35;
+    --panel: #222823; --arrow: #6f7a71;
+    --event: #e8914a; --command: #7db8de; --aggregate: #e6cb68; --actor: #e3d79f;
+    --policy: #b89ad9; --external: #dd94b2; --readmodel: #98cf8f; --hotspot: #e6526f;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161a17; --board: #1d221e; --dot: #2f3731; --fg: #e5e9e4; --muted: #9aa49b; --line: #333b35;
+  --panel: #222823; --arrow: #6f7a71;
+  --event: #e8914a; --command: #7db8de; --aggregate: #e6cb68; --actor: #e3d79f;
+  --policy: #b89ad9; --external: #dd94b2; --readmodel: #98cf8f; --hotspot: #e6526f;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 48px;
+}
+.wrap { max-width: 1480px; margin: 0 auto; display: grid; gap: 28px; }
+header { display: grid; gap: 6px; max-width: 72ch; }
+h1 { font-family: var(--font-sticky); font-weight: 700; font-size: 2.2rem; line-height: 1.1; margin: 0; text-wrap: balance; }
+h2 { font-family: var(--font-sticky); font-size: 1.7rem; font-weight: 700; line-height: 1.1; margin: 0; text-wrap: balance; }
+header p, .section-head p { margin: 0; color: var(--muted); }
+.provenance { font-size: 0.8rem; font-family: var(--font-mono); }
+section { display: grid; gap: 12px; }
+.section-head { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; justify-content: space-between; }
+.section-head > div { display: grid; gap: 4px; max-width: 72ch; min-width: 0; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--muted); }
+.legend i { width: 18px; height: 18px; border-radius: 2px; display: inline-block; box-shadow: 0 1px 2px rgb(0 0 0 / 0.2); }
+
+.board-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background-color: var(--board);
+  background-image: radial-gradient(var(--dot) 1.2px, transparent 1.2px); background-size: 18px 18px; }
+.board { display: grid; }
+.phase { padding: 14px 12px 8px; font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+  border-bottom: 2px dashed var(--line); font-weight: 600; }
+.phase b { display: block; font-family: var(--font-sticky); text-transform: none; letter-spacing: 0; font-size: 1.15rem; color: var(--fg); font-weight: 700; }
+.lane-label { padding: 16px 12px; font-family: var(--font-sticky); font-size: 1.05rem; font-weight: 700; color: var(--muted);
+  border-right: 2px dashed var(--line); writing-mode: vertical-rl; transform: rotate(180deg); text-align: center; }
+.lane-sep { grid-column: 1 / -1; border-top: 2px dashed var(--line); }
+.cell { padding: 16px 10px 20px; display: flex; flex-direction: column; gap: 22px; border-left: 1px solid color-mix(in srgb, var(--line) 50%, transparent); }
+.cell.empty::after { content: "—"; color: var(--line); font-family: var(--font-sticky); font-size: 1.4rem; text-align: center; }
+.chain { display: flex; flex-direction: column; align-items: flex-start; }
+.chain .arrow { width: 2px; height: 12px; background: var(--arrow); margin-left: 22px; position: relative; }
+.chain .arrow::after { content: ""; position: absolute; bottom: -4px; left: -4px; border: 5px solid transparent; border-top-color: var(--arrow); border-bottom: 0; }
+
+.sticky { all: unset; cursor: pointer; display: block; width: 168px; min-height: 92px; padding: 10px 11px 12px; color: var(--ink);
+  font-family: var(--font-sticky); font-size: 0.98rem; line-height: 1.22; border-radius: 2px;
+  box-shadow: 0 1px 1px rgb(0 0 0 / 0.12), 0 6px 10px -6px rgb(0 0 0 / 0.35); transition: transform 0.15s ease; }
+.sticky small { display: block; font-family: var(--font-body); font-size: 0.68rem; line-height: 1.3; margin-top: 6px; opacity: 0.78; }
+.sticky:hover { transform: translateY(-2px) rotate(-0.6deg); }
+.sticky:focus-visible, .sticky[aria-pressed="true"] { outline: 3px solid var(--fg); outline-offset: 3px; }
+.sticky.event { background: var(--event); }
+.sticky.command { background: var(--command); }
+.sticky.aggregate { background: var(--aggregate); min-height: 70px; width: 190px; }
+.sticky.actor { background: var(--actor); min-height: 46px; width: 112px; font-size: 0.9rem; }
+.sticky.actor::before { content: "☺ "; }
+.sticky.policy { background: var(--policy); }
+.sticky.external { background: var(--external); width: 190px; }
+.sticky.readmodel { background: var(--readmodel); }
+.sticky.hotspot { background: var(--hotspot); transform: rotate(-3deg); width: 176px; }
+.sticky.hotspot:hover { transform: rotate(-1.5deg) translateY(-2px); }
+.sticky.timer::before { content: "⏱ "; }
+.sticky.loop::after { content: " ↺"; font-weight: 700; }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 18px 20px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.panel .kind { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.panel .kind i { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+.panel h3 { margin: 0; font-family: var(--font-sticky); font-size: 1.45rem; line-height: 1.15; }
+.panel p { margin: 0; max-width: 65ch; }
+.panel .ref { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); overflow-wrap: anywhere; }
+
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.actions button { font: 500 0.85rem var(--font-body); color: var(--fg); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 4px; padding: 7px 12px; cursor: pointer; }
+.actions button:hover { border-color: var(--fg); }
+.actions button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
+#bpmn-canvas { height: 640px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); overflow: hidden; position: relative; }
+.bpmn-fallback { padding: 24px; color: var(--muted); margin: 0; }
+.hint { font-size: 0.82rem; color: var(--muted); margin: 0; }
+#bpmn-xml-box textarea { width: 100%; height: 240px; font: 0.76rem/1.4 var(--font-mono); color: var(--fg); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 4px; padding: 10px; resize: vertical; }
+#bpmn-xml-box summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; }
+@media (max-width: 600px) { #bpmn-canvas { height: 460px; } }
+@media (prefers-reduced-motion: reduce) { .sticky { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1 id="flow-title"></h1>
+    <p id="flow-summary"></p>
+    <p class="provenance" id="flow-provenance"></p>
+  </header>
+
+  <section id="board-section" aria-labelledby="board-title">
+    <div class="section-head">
+      <div>
+        <h2 id="board-title">EventStorming board</h2>
+        <p>Time runs left to right. Orange is something that happened, blue asks for something, lilac is a rule that reacts to an event. Select a sticky to see where it lives in the code.</p>
+      </div>
+    </div>
+    <div class="legend" id="legend" aria-label="Sticky colors"></div>
+    <div class="board-scroll"><div class="board" id="board"></div></div>
+    <div class="panel" id="detail" aria-live="polite"><p class="hint">Select a sticky to see its details.</p></div>
+  </section>
+
+  <section id="bpmn-section" aria-labelledby="bpmn-title">
+    <div class="section-head">
+      <div>
+        <h2 id="bpmn-title">BPMN 2.0</h2>
+        <p>Each lane is one part of the system. External systems are pools at the top, joined by dashed message flows.</p>
+      </div>
+      <div class="actions">
+        <button type="button" id="bpmn-fit">Fit to screen</button>
+        <button type="button" id="bpmn-copy">Copy BPMN XML</button>
+      </div>
+    </div>
+    <div id="bpmn-canvas"><p class="bpmn-fallback">Loading the BPMN diagram…</p></div>
+    <p class="hint">Drag to move, scroll to zoom. Paste the XML into Camunda Modeler or demo.bpmn.io to edit it.</p>
+    <details id="bpmn-xml-box">
+      <summary>Show the BPMN XML</summary>
+      <textarea id="bpmn-xml" readonly aria-label="BPMN XML"></textarea>
+    </details>
+  </section>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bpmn-js@17.11.1/dist/bpmn-navigated-viewer.production.min.js"></script>
+<script>
+{{RENDERER}}
+</script>
+<script>
+FlowRender.mount({{MODEL}}, document);
+</script>
