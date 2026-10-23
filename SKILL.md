@@ -7,7 +7,9 @@ description: Double-loop test-driven development. An outer acceptance test (BDD 
 
 Double-loop TDD runs two red → green loops, one inside the other:
 
-- **Outer loop (acceptance):** one test that states a user-visible behavior from the spec, written first, at the outermost seam (a BDD scenario, an end-to-end or API-level test). It stays red while the feature is being built. It is cross-validation: it checks the work, it does not drive it.
+- **Outer loop (acceptance):** one test that states a user-visible behavior from the spec, written first, at the outermost seam. It stays red while the feature is being built. It is cross-validation: it checks the work, it does not drive it.
+  - **By default the outer test is an end-to-end test**: a BDD scenario that runs against a deployed environment (staging, say), through the real entry point, with the real queues, databases and external services. A test that runs the code in-process with test doubles inside the flow is an integration test, not an acceptance test.
+  - Fall back to an in-process outer test only when the behavior cannot be observed end to end (no deployed environment can reach it, or an external system has no test account). Say so when you agree the seams, and name what the outer test then does not prove.
 - **Inner loop (unit):** plain unit tests at agreed seams, one red → green cycle at a time. These drive every line of the implementation.
 
 The feature is done when the outer test goes green. That is the default for this skill; drop to the inner loop alone only when there is no user-visible behavior to state (a pure refactor-safe utility, say), and say so.
@@ -53,7 +55,7 @@ A **seam** is the public boundary you test at: the interface where you observe b
 
 Agree both loops' seams:
 
-- **The acceptance seam** — the outermost interface a caller uses (the endpoint, the tool, the command). Usually one.
+- **The acceptance seam** — the outermost interface a caller uses (the endpoint, the tool, the command), reached on a deployed environment. Usually one. Name the environment it runs on and what triggers the flow there.
 - **The unit seams** — the inner interfaces whose logic is complex or risky enough to deserve their own tests (a parser, a permission gate, a security check). List them in the order you intend to build them.
 
 Ask: "What's the public interface, and which seams should we test?"
@@ -64,6 +66,7 @@ Ask: "What's the public interface, and which seams should we test?"
 - **Tautological** — the assertion recomputes the expected value the way the code does (`expect(add(a, b)).toBe(a + b)`, a snapshot derived by hand the same way, a constant asserted equal to itself), so it passes by construction and can never disagree with the code. Expected values must come from an independent source of truth — a known-good literal, a worked example, the spec.
 - **Horizontal slicing** — writing all tests first, then all implementation. Bulk tests verify _imagined_ behavior: you test the _shape_ of things rather than user-facing behavior, the tests go insensitive to real changes, and you commit to test structure before understanding the implementation. Work in **vertical slices** instead — one test → one implementation → repeat, each test a **tracer bullet** that responds to what the last cycle taught you. This holds in both loops: one acceptance test at a time, one unit test at a time.
 - **Acceptance-driven implementation** — skipping the inner loop and coding straight at the acceptance test. The code passes the scenario but nothing pins down its edge cases, and every failure has to be diagnosed through the whole stack.
+- **Integration test as the outer loop** — running the flow in-process and replacing a collaborator inside it (a patched client, a faked queue) while calling it the acceptance test. It proves the wiring under the doubles, not that the deployed system has the behavior. The tell: it passes on a branch that was never deployed.
 - **Duplicated edge cases** — pushing every edge case through the acceptance test. Edge cases belong in the inner loop, where each one costs a few lines; the outer test covers the behaviors the spec names.
 
 ## Rules of the loops
