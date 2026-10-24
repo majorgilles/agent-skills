@@ -1,0 +1,73 @@
+{
+  "title": "Order Checkout",
+  "summary": "A small example flow: a customer places an order, a worker charges the card, and the warehouse is told to ship.",
+  "read_on": "2026-10-23",
+  "story": {
+    "text": "A customer places an order through the API. A worker charges the card with Stripe and, when the payment goes through, asks the warehouse to ship.",
+    "steps": [
+      "The API saves the order with status PENDING and publishes ORDER_PLACED.",
+      "The payment worker reacts to ORDER_PLACED and charges the card with Stripe.",
+      "When Stripe accepts the payment, the worker publishes PAYMENT_CAPTURED and requests a shipment.",
+      "When Stripe declines it, the worker publishes PAYMENT_DECLINED and the order stops there."
+    ]
+  },
+  "board": {
+    "phases": [
+      { "id": "place", "name": "Customer orders" },
+      { "id": "pay", "name": "Payment" },
+      { "id": "ship", "name": "Shipping" }
+    ],
+    "lanes": [
+      { "id": "main", "name": "Main flow" },
+      { "id": "failure", "name": "Failure" }
+    ],
+    "cells": [
+      { "lane": "main", "phase": "place", "chains": [[
+        { "kind": "actor", "text": "Customer" },
+        { "kind": "command", "text": "Place order", "ref": "app/orders/api.py" },
+        { "kind": "aggregate", "text": "Order" },
+        { "kind": "event", "text": "Order placed", "sub": "ORDER_PLACED", "detail": "The API saves the order with status PENDING and publishes the event." }
+      ]] },
+      { "lane": "main", "phase": "pay", "chains": [
+        [
+          { "kind": "policy", "text": "Whenever an order is placed, charge the card", "ref": "app/payments/worker.py" },
+          { "kind": "external", "text": "Stripe" },
+          { "kind": "event", "text": "Payment captured", "sub": "PAYMENT_CAPTURED" }
+        ]
+      ] },
+      { "lane": "main", "phase": "ship", "chains": [[
+        { "kind": "policy", "text": "Whenever a payment is captured, ask for shipping" },
+        { "kind": "event", "text": "Shipment requested" },
+        { "kind": "readmodel", "text": "Warehouse pick list" }
+      ]] },
+      { "lane": "failure", "phase": "pay", "chains": [
+        [{ "kind": "event", "text": "Payment declined", "sub": "PAYMENT_DECLINED" }],
+        [{ "kind": "hotspot", "text": "A retry charges the card twice?", "detail": "The worker sends no idempotency key to Stripe." }]
+      ] }
+    ]
+  },
+  "bpmn": {
+    "pool": "shop: order checkout",
+    "lanes": [
+      { "id": "lane_api", "name": "API" },
+      { "id": "lane_worker", "name": "Payment worker" }
+    ],
+    "externals": [{ "id": "ext_stripe", "name": "Stripe", "column": 3 }],
+    "nodes": [
+      { "id": "start", "type": "startEvent", "def": "message", "name": "Order placed", "lane": "lane_api", "column": 0, "row": 0 },
+      { "id": "save", "type": "serviceTask", "name": "Save order (PENDING)", "lane": "lane_api", "column": 1, "row": 0 },
+      { "id": "publish", "type": "intermediateThrowEvent", "def": "message", "name": "ORDER_PLACED", "lane": "lane_api", "column": 2, "row": 0 },
+      { "id": "charge", "type": "serviceTask", "name": "Charge card", "lane": "lane_worker", "column": 3, "row": 0 },
+      { "id": "paid", "type": "exclusiveGateway", "name": "Paid?", "lane": "lane_worker", "column": 4, "row": 0 },
+      { "id": "ship", "type": "sendTask", "name": "Request shipment", "lane": "lane_worker", "column": 5, "row": 0 },
+      { "id": "done", "type": "endEvent", "name": "Shipped", "lane": "lane_worker", "column": 6, "row": 0 },
+      { "id": "declined", "type": "endEvent", "def": "message", "name": "PAYMENT_DECLINED", "lane": "lane_worker", "column": 4, "row": 1, "label": "right" }
+    ],
+    "flows": [
+      ["start", "save"], ["save", "publish"], ["publish", "charge"], ["charge", "paid"],
+      ["paid", "ship", "Yes"], ["paid", "declined", "No"], ["ship", "done"]
+    ],
+    "messages": [{ "task": "charge", "external": "ext_stripe", "direction": "both" }],
+    "annotations": [{ "text": "No idempotency key: a retry may charge twice.", "target": "charge", "lane": "lane_worker", "column": 3, "row": 1 }]
+  }
+}

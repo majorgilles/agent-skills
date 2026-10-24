@@ -1,0 +1,3 @@
+interface:
+  display_name: "Visualize Flow"
+  short_description: "Draw a code flow as an EventStorming board and a BPMN diagram"
