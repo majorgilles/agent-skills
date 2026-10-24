@@ -13,7 +13,6 @@ in `skills/`.
 | [`notebook-docs`](skills/notebook-docs) | Rewrite notebook Markdown, comments, docstrings, types, and tensor-shape explanations. Optionally commit and push the checked changes |
 | [`pdf-book-to-study-site`](skills/pdf-book-to-study-site) | Turn a PDF textbook (math or coding) into a verbatim, readable HTML study site with exact figures, real math, runnable Python/JavaScript code, themes and text size, Khan-style mastery tracking and automatic exercise checking via the reader's own LLM key plus real code execution. Openly licensed books can be published on GitHub Pages; books the user has purchased are built as a private personal study copy (local or access-controlled hosting) |
 | [`to-issues`](skills/to-issues) | Break a plan, spec, or PRD into independently-grabbable GitHub issues using tracer-bullet vertical slices |
-| [`to-prd`](skills/to-prd) | Turn the current conversation context into a PRD and submit it as a GitHub issue |
 | [`to-tutorial`](skills/to-tutorial) | Write a content-driven tutorial for the current project, using git history as a hidden scaffold for the order of ideas — not as the structure the reader sees |
 | [`visualize-flow`](skills/visualize-flow) | Draw a flow from the code (a lambda chain, an event flow, a cron, a sync, a use case) as one page with a core domain chart, a context map, a domain story, an EventStorming board and a BPMN diagram, all built from one flow JSON file |
 
