@@ -12,9 +12,13 @@ in `skills/`.
 | [`implement-product-task-slices`](skills/implement-product-task-slices) | Implement a product task from a Notion ticket ID as a series of incremental vertical slices, each on its own branch and PR. Reads the task, breaks todos into tracer-bullet slices, gets user approval on the breakdown, then implements and ships each slice via /super-commit. Requires the notionMCP MCP server |
 | [`notebook-docs`](skills/notebook-docs) | Rewrite notebook Markdown, comments, docstrings, types, and tensor-shape explanations. Optionally commit and push the checked changes |
 | [`pdf-book-to-study-site`](skills/pdf-book-to-study-site) | Turn a PDF textbook (math or coding) into a verbatim, readable HTML study site with exact figures, real math, runnable Python/JavaScript code, themes and text size, Khan-style mastery tracking and automatic exercise checking via the reader's own LLM key plus real code execution. Openly licensed books can be published on GitHub Pages; books the user has purchased are built as a private personal study copy (local or access-controlled hosting) |
+| [`simplified-technical-english`](skills/simplified-technical-english) | Rewrite text in ASD-STE100 Simplified Technical English: a chat answer, a Notion page, a Slack message, a GitHub PR or issue, or a doc file |
+| [`summarize-work`](skills/summarize-work) | Summarize the work done through Claude Code on one day, across every session and repo, as standup notes: releases, PRs, production work and the next steps left open |
 | [`to-issues`](skills/to-issues) | Break a plan, spec, or PRD into independently-grabbable GitHub issues using tracer-bullet vertical slices |
 | [`to-tutorial`](skills/to-tutorial) | Write a content-driven tutorial for the current project, using git history as a hidden scaffold for the order of ideas — not as the structure the reader sees |
+| [`trace-flow`](skills/trace-flow) | Trace an architectural flow hop by hop, with the trigger of every hop (emitter and route) proven by a `file:line` in the code |
 | [`visualize-flow`](skills/visualize-flow) | Draw a flow from the code (a lambda chain, an event flow, a cron, a sync, a use case) as one page with a core domain chart, a context map, a domain story, an EventStorming board and a BPMN diagram, all built from one flow JSON file |
+| [`work-on-extension`](skills/work-on-extension) | Create or update a pi extension from a prompt: implement and test it, work on a branch, bump the version, update the README, and open a PR |
 
 ## Install
 
