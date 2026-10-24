@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bookshelf</title>
+<script>try{var r=JSON.parse(localStorage.getItem('bop-reader-v1'))||{};if(r.theme)document.documentElement.dataset.theme=r.theme;if(r.fs)document.documentElement.style.setProperty('--fs',r.fs+'px')}catch(e){}</script>
+<style>
+  /* Same theme tokens and stored preference as the book sites (they share this origin). */
+  :root, :root[data-theme="light"] { --bg:#fbfaf7; --fg:#1d1c1a; --muted:#6b675f; --line:#e3dfd6; --card:#fff; --accent:#2f5d8a; --bar:#cfcac0; color-scheme:light; }
+  :root[data-theme="sepia"] { --bg:#f4ecd8; --fg:#3b2f22; --muted:#7a6a55; --line:#dccfb4; --card:#fbf5e6; --accent:#8a4b1f; --bar:#d9cdb2; }
+  :root[data-theme="dark"] { --bg:#171716; --fg:#e8e5de; --muted:#a39f96; --line:#33312d; --card:#201f1d; --accent:#7fb0e0; --bar:#45423c; color-scheme:dark; }
+  :root[data-theme="contrast"] { --bg:#000; --fg:#fff; --muted:#d0d0d0; --line:#777; --card:#111; --accent:#ffd400; --bar:#444; color-scheme:dark; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme]) { --bg:#171716; --fg:#e8e5de; --muted:#a39f96; --line:#33312d; --card:#201f1d; --accent:#7fb0e0; --bar:#45423c; color-scheme:dark; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: var(--fs, 18px)/1.6 "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 48px 16px; }
+  h1 { font-size: 2rem; margin: 0 0 .2em; } .sub { color: var(--muted); margin: 0 0 2em; font: 15px system-ui, sans-serif; }
+  .books { display: grid; gap: 14px; }
+  a.book { display: block; padding: 16px 18px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; color: var(--fg); text-decoration: none; }
+  a.book:hover, a.book:focus-visible { border-color: var(--accent); }
+  .title { font-size: 1.25rem; font-weight: 600; } .author { color: var(--muted); font-size: .95rem; }
+  .prog { display: flex; align-items: center; gap: 10px; margin-top: 10px; font: 14px system-ui, sans-serif; color: var(--muted); }
+  .bar { flex: 1; height: 8px; border-radius: 4px; background: var(--bar); overflow: hidden; } .bar span { display: block; height: 100%; background: var(--accent); }
+  .empty, .err { color: var(--muted); font: 15px system-ui, sans-serif; }
+</style></head>
+<body><main>
+<h1>Bookshelf</h1>
+<p class="sub">Books published as study sites. Your mastery is stored in this browser.</p>
+<div class="books" id="books"><p class="empty">Loading…</p></div>
+</main>
+<script>
+// Lists the owner's public repos tagged "study-book" that have a GitHub Pages site, with the reader's mastery per book.
+(async () => {
+  const user = location.hostname.endsWith('.github.io') ? location.hostname.split('.')[0] : 'majorgilles';
+  const box = document.getElementById('books');
+  const load = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
+  const PTS = { mastered: 100, proficient: 80, familiar: 50 };
+  function mastery(outline, p) {                     // same levels as the book sites
+    const secs = outline.flatMap(c => c.sections);
+    if (!secs.length || !p) return 0;
+    const lv = s => { if (p.manual?.[s.id]) return p.manual[s.id]; if (!s.ex.length) return 'none';
+      const f = s.ex.filter(id => p.ex?.[id]?.s === 'correct').length / s.ex.length;
+      return f === 1 ? 'mastered' : f >= .7 ? 'proficient' : f >= .3 ? 'familiar' : 'none'; };
+    return secs.reduce((a, s) => a + (PTS[lv(s)] || 0), 0) / secs.length;
+  }
+  try {
+    const repos = await fetch(`https://api.github.com/users/${user}/repos?per_page=100&sort=updated`).then(r => r.json());
+    const books = repos.filter(r => r.has_pages && (r.topics || []).includes('study-book'));
+    box.innerHTML = '';
+    for (const r of books) {
+      const base = `/${r.name}/`;
+      const [meta, outline] = await Promise.all([fetch(base + 'book.json').then(x => x.json()).catch(() => ({})),
+                                                 fetch(base + 'outline.json').then(x => x.json()).catch(() => [])]);
+      const pct = Math.round(mastery(outline, load(`${meta.id || r.name}-progress-v1`)));
+      const a = document.createElement('a'); a.className = 'book'; a.href = base;
+      a.innerHTML = `<div class="title"></div><div class="author"></div>
+        <div class="prog"><span class="bar"><span style="width:${pct}%"></span></span><span>${pct}% mastered</span></div>`;
+      a.querySelector('.title').textContent = meta.title || r.name;
+      a.querySelector('.author').textContent = meta.author || r.description || '';
+      box.append(a);
+    }
+    // login-protected books (private copies hosted elsewhere): listed from private-books.json, no progress (other origin)
+    const priv = await fetch('private-books.json').then(x => x.ok ? x.json() : []).catch(() => []);
+    for (const pb of priv) {
+      const a = document.createElement('a'); a.className = 'book'; a.href = pb.url;
+      a.innerHTML = `<div class="title"></div><div class="author"></div><div class="prog">🔒 Private copy · sign-in required</div>`;
+      a.querySelector('.title').textContent = pb.title; a.querySelector('.author').textContent = pb.author || '';
+      box.append(a);
+    }
+    if (!box.children.length) box.innerHTML = '<p class="empty">No published books yet.</p>';
+  } catch (e) { box.innerHTML = '<p class="err">Could not load the book list (GitHub API unavailable). Try again later.</p>'; }
+})();
+</script>
+</body></html>
