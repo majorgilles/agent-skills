@@ -26,9 +26,9 @@ git clone git@github.com:majorgilles/agent-skills.git ~/dev/agent-skills
 ~/dev/agent-skills/install.sh
 ```
 
-`install.sh` links every skill into `~/.agents/skills` and `~/.claude/skills`, so edits in this repo apply right
-away. Run it again after adding a skill. To use a single skill without cloning, copy its folder into one of those
-two directories.
+`install.sh` links every skill into `~/.agents/skills`, `~/.claude/skills` and, when pi is installed,
+`~/.pi/agent/skills`, so edits in this repo apply right away. Run it again after adding or removing a skill. To use
+a single skill without cloning, copy its folder into one of those directories.
 
 ## History
 

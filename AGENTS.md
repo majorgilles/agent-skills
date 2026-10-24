@@ -1,8 +1,8 @@
 # agent-skills
 
 This repo holds the user's own skills for coding agents, one folder per skill in `skills/`. Each folder has a
-`SKILL.md`. Agents find the skills through links in `~/.agents/skills` and `~/.claude/skills`, which point back to
-this repo, so an edit here applies at once.
+`SKILL.md`. Agents find the skills through links in `~/.agents/skills`, `~/.claude/skills` and, when pi is installed,
+`~/.pi/agent/skills`. The links point back to this repo, so an edit here applies at once.
 
 ## Install the skills for the user
 
@@ -20,15 +20,18 @@ When the user asks to install, link or set up these skills:
    ~/dev/agent-skills/install.sh
    ```
 
-   For each folder in `skills/`, it creates a link with the same name in `~/.agents/skills` and in
-   `~/.claude/skills`. A real folder with that name is moved to `~/.agents/skills-backup/<timestamp>/` first. The
-   script never deletes a skill.
+   For each folder in `skills/`, it creates a link with the same name in `~/.agents/skills`, in
+   `~/.claude/skills` and, when `~/.pi/agent` exists, in `~/.pi/agent/skills`. A real folder with that name is
+   moved to `~/.agents/skills-backup/<timestamp>/` first. A link to a skill that this repo no longer has is
+   removed. The script never deletes a skill folder.
 
 3. Check the links. This prints nothing when every skill is linked correctly:
 
    ```bash
    repo=~/dev/agent-skills
-   for target in ~/.agents/skills ~/.claude/skills; do
+   targets=(~/.agents/skills ~/.claude/skills)
+   [ -d ~/.pi/agent ] && targets+=(~/.pi/agent/skills)
+   for target in "${targets[@]}"; do
      for skill in "$repo"/skills/*/; do
        name=$(basename "$skill")
        [ "$(readlink "$target/$name")" = "${skill%/}" ] && [ -f "$target/$name/SKILL.md" ] \
