@@ -7,7 +7,9 @@ from bookprofile import PROFILE, pdf_path
 F, SZ, PG = PROFILE['fonts'], PROFILE['sizes'], PROFILE['page']
 FIX = F['fix']
 NEG = {'=': '≠', '∈': '∉', '⊆': '⊈', '⊂': '⊄', '⊇': '⊉', '⊃': '⊅', '≡': '≢', '|': '∤', '∃': '∄', '<': '≮', '>': '≯',
-       '≤': '≰', '≥': '≱', '∼': '≁', '≈': '≉', '∣': '∤'}
+       '≤': '≰', '≥': '≱', '∼': '≁', '≈': '≉', '∣': '∤', '⇒': '⇏', '⇐': '⇍', '⇔': '⇎', '→': '↛', '←': '↚', '↔': '↮',
+       '∋': '∌', '≅': '≇', '≃': '≄', '≺': '⊀', '≻': '⊁', '⊢': '⊬', '⊨': '⊭', '∥': '∦', '≍': '≭', '⊑': '⋢', '⊒': '⋣'}
+NEGATED = set(NEG.values())   # a negation must never be lost: it reverses the meaning (audit.py negations_check)
 TOP, BOTTOM = PG['top'], PG['bottom']
 PROSE, MONO, BOLD, ITAL, MATHITAL = (re.compile(F[k]) for k in ('prose', 'mono', 'bold', 'italic', 'math_italic'))
 TEXT = re.compile(F['text']) if F['text'] else None
@@ -17,7 +19,7 @@ GAP = PROFILE['layout']['space_gap']
 
 
 class Span:
-    def __init__(self, s, slashes=()):
+    def __init__(self, s, slashes=(), accents=None):
         self.font, self.size = s['font'], s['size']
         ch = [c for c in s['chars'] if c['c'].strip()] or s['chars']   # char boxes: span boxes can take the whole line's height
         self.x0, self.x1 = s['bbox'][0], s['bbox'][2]
@@ -26,9 +28,12 @@ class Span:
         fix = FIX.get(self.font, {})
         def glyph(c):   # a zero-width U+0338 drawn at the same spot negates the symbol (≠, ∉, ...)
             g = fix.get(c['c'], c['c'])
-            if g in NEG and any(abs(c['origin'][0] - x) < 0.6 and abs(c['origin'][1] - y) < 0.6 for x, y in slashes): return NEG[g]
+            if any(abs(c['origin'][0] - x) < 0.6 and abs(c['origin'][1] - y) < 0.6 for x, y in slashes):
+                g = NEG.get(g, g + '\u0338')      # no precomposed sign: keep the slash as a combining mark, never drop it
+            if accents and char_key(c) in accents[1]: g += '\u0304'   # the bar drawn over it (P̄ "not P", z̄, Ā)
+            if accents and char_key(c) in accents[2]: g += '\u0305'   # under a drawn overline or root bar (u̅+̅v̅, 1.8̅1̅3̅)
             return g
-        chars = [c for c in s['chars'] if c['c'] != '̸']
+        chars = [c for c in s['chars'] if c['c'] != '̸' and not (accents and char_key(c) in accents[0])]
         out, i = [], 0
         while i < len(chars):   # an overstrike: "/" printed on top of "0" is the empty set ∅ (two glyphs in the text layer)
             a, b = chars[i], chars[i + 1] if i + 1 < len(chars) else None
@@ -76,6 +81,76 @@ class Row:
     def text(self): return ''.join(s.text for s in self.spans)
 
 
+ROOT_SIGN = lambda font, text: (font in RADICAL and '√' in text) or (font.startswith('CMEX') and text.strip() in tuple('pqrs'))
+char_key = lambda c: (c['c'], round(c['origin'][0], 1), round(c['origin'][1], 1))
+ACCENTS = '¯ˉ'   # a bar accent (TeX \\bar) is its own glyph, set before its letter: "¯P" prints as P̄
+
+
+def bar_accents(raw):
+    """(keys of the bar accent glyphs, keys of the letters they stand over): the accent is joined to its letter as a
+    combining macron. A bar can be a negation (P̄ = "not P"), a complement or a conjugate: it must stay on its letter.
+    An accent with no letter under it stays a visible "¯" (audit.py reports it)."""
+    chars = [c for s in raw for c in s['chars'] if c['c'].strip()]
+    drop, over = set(), set()
+    for a in chars:
+        if a['c'] not in ACCENTS: continue
+        mx = (a['bbox'][0] + a['bbox'][2]) / 2
+        under = [c for c in chars if c['c'] not in ACCENTS and c['bbox'][0] - 1.5 <= mx <= c['bbox'][2] + 1.5
+                 and -1 < c['origin'][1] - a['origin'][1] < 10]
+        if not under: continue
+        b = min(under, key=lambda c: abs((c['bbox'][0] + c['bbox'][2]) / 2 - mx) + abs(c['origin'][1] - a['origin'][1]))
+        drop.add(char_key(a)); over.add(char_key(b))
+    return drop, over
+
+
+def overlines(page, raw):
+    """Keys of the characters under a drawn overline: a thin loose bar with text just under it and no numerator over
+    it (not a fraction bar). Conjugates of sums (u+v with a bar), recurring decimals (1.813 with a bar over 813) and
+    the radicand of a root: a lost bar changes the meaning, so each character gets a combining overline. Words of 3+
+    letters under a long rule are a table header, not math."""
+    chars = [dict(c, size=s['size'], font=s['font']) for s in raw for c in s['chars'] if c['c'].strip()]
+    keys = set()
+    for r in map(pymupdf.Rect, loose_marks(page)):
+        if r.height > 1.6 or r.width < 3: continue
+        inx = lambda c: r.x0 - 0.5 <= (c['bbox'][0] + c['bbox'][2]) / 2 <= r.x1 + 0.5
+        under = [c for c in chars if inx(c) and 0 < c['origin'][1] - r.y1 < 16 and c['c'] not in ACCENTS]
+        if under:                                              # the line just under the bar (a tall root: its scripts too)
+            full = [c['origin'][1] for c in under if c['size'] >= NORMAL]
+            base = min(full) if full else min(c['origin'][1] for c in under)
+            under = [c for c in under if c['origin'][1] <= base + 4]
+        if not under or any(inx(c) and 0 < r.y0 - c['origin'][1] < 8 for c in chars): continue
+        text = ''.join(c['c'] for c in sorted(under, key=lambda c: c['origin'][0]))
+        if re.search(r'[^\W\d_]{3,}', text): continue
+        root = any(ROOT_SIGN(c['font'], c['c']) and abs(c['bbox'][2] - r.x0) < 2.5 for c in chars)
+        if root and len(text) <= 2: continue                   # √2, √n: the root bar adds nothing in text
+        keys |= {char_key(c) for c in under}
+    return keys
+
+
+def split_at_roots(page, raw):
+    """A text span that runs past the end of a root bar ("√(n+2" then "2. Then") is split there, so the root can be
+    cropped whole without cutting a span."""
+    bars = [pymupdf.Rect(d['rect']) for d in page.get_drawings() if d['rect'].height < 1.2]
+    bars += [r for r in map(pymupdf.Rect, loose_marks(page)) if r.height < 1.2]
+    bars = [r for r in bars if any(ROOT_SIGN(s['font'], ''.join(c['c'] for c in s['chars'])) and abs(s['bbox'][2] - r.x0) < 1.5
+                                   and s['bbox'][1] - 1 <= r.y0 <= s['bbox'][3] for s in raw)]
+    if not bars: return raw
+    out = []
+    for s in raw:
+        cut = next((r for r in bars if 0 < s['origin'][1] - r.y1 < 16 and s['bbox'][0] < r.x1 < s['bbox'][2]), None)
+        if cut is None or len(s['chars']) < 2: out.append(s); continue
+        side = [(c['bbox'][0] + c['bbox'][2]) / 2 <= cut.x1 + 0.5 for c in s['chars']]
+        groups = []
+        for c, k in zip(s['chars'], side):
+            if groups and groups[-1][0] == k: groups[-1][1].append(c)
+            else: groups.append((k, [c]))
+        for _, cs in groups:
+            bb = pymupdf.Rect(cs[0]['bbox'])
+            for c in cs: bb |= c['bbox']
+            out.append(dict(s, chars=cs, bbox=(bb.x0, s['bbox'][1], bb.x1, s['bbox'][3]), origin=cs[0]['origin']))
+    return out
+
+
 def page_spans(page):
     slashes = [(ch[2][0], ch[2][1]) for sp in page.get_texttrace() for ch in sp['chars'] if ch[0] == 0x338]
     spans = lambda flags: [s for b in page.get_text('rawdict', flags=flags)['blocks'] for l in b.get('lines', []) for s in l['spans']]
@@ -86,7 +161,9 @@ def page_spans(page):
         key = lambda s: (s['font'], round(s['origin'][0], 1), round(s['origin'][1], 1))   # the ink, so take the
         exact = {key(s): s for s in spans(pymupdf.TEXTFLAGS_RAWDICT | pymupdf.TEXT_ACCURATE_BBOXES) if odd(s)}   # outlines' boxes
         raw = [exact.get(key(s), s) if odd(s) else s for s in raw]
-    return [Span(s, slashes) for s in raw if s['chars'] and TOP <= s['bbox'][1] <= BOTTOM]   # space-only spans are word gaps
+    raw = split_at_roots(page, raw)
+    accents = bar_accents(raw) + (overlines(page, raw),)
+    return [Span(s, slashes, accents) for s in raw if s['chars'] and TOP <= s['bbox'][1] <= BOTTOM]   # space-only spans are word gaps
 
 
 def margin(pno):
@@ -487,6 +564,25 @@ def analyse(page):
              for i, b in enumerate(bars)} if rows else {}                                       # under the bar, else nearest
     row_boxes = {id(row): hard_math(row, [b for i, b in enumerate(bars) if owner[i] is row]) + [f for f in inline if home[id(f)] is row]
                  for row in rows}
+    sign_of = lambda r: next((t for t in spans if ROOT_SIGN(t.font, t.text) and abs(t.x1 - r.x0) < 1.5
+                              and t.y0 - 1 <= r.y0 <= t.y1), None)   # √ (text font) or a TeX big radical (CMEX p q r s)
+    roots = [pymupdf.Rect(d['rect']) for d in drawings if d['rect'].height < 1.2]
+    roots += [r for r in map(pymupdf.Rect, loose_marks(page)) if r.height < 1.2]
+    for r in roots:                                            # a root over more than a symbol (√(x²+y²)): its bar is the
+        sign = sign_of(r)
+        if sign is None: continue
+        under = [t for t in text_spans if t.text.strip() and r.x0 - 0.5 <= (t.x0 + t.x1) / 2 <= r.x1 + 0.5
+                 and 0 < t.base - r.y1 < 16]                   # only sign of its extent: crop the whole root, exactly
+        if len(''.join(t.text for t in under).replace(' ', '')) <= 2: continue   # √2, √n: plain text is exact
+        home_row = next((row for row in rows if any(t is sign for t in row.spans)), None) \
+            or min(rows, key=lambda row: abs(row.base - sign.base), default=None)
+        if home_row is None: continue
+        box = sign.rect() | r
+        for t in under: box |= t.rect()
+        boxes = row_boxes[id(home_row)]
+        hit = [i for i, b in enumerate(boxes) if (b + (-1, -1, 1, 1)).intersects(box)]   # one crop, never the sign twice
+        for i in hit: box |= boxes[i]
+        row_boxes[id(home_row)] = [b for i, b in enumerate(boxes) if i not in hit] + [box]
     wordy = lambda t: re.search(r'[^\W\d_]{3,}', re.sub(MATH_NAMES, ' ', t)) is not None   # prose, not cos or lim
     absorbed = set()
     for row in rows:                                           # a line of math only (no words) with several crops or a big

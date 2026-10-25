@@ -2,6 +2,15 @@
 
 Text layer
 - `get_text('rawdict')` drops zero-width glyphs (combining slash of ≠): use `get_texttrace()` (layout.NEG).
+- A negation slash over a symbol missing from `layout.NEG` was dropped: "⇏" read "⇒", the opposite meaning, and the
+  audit was blind because it counted through the same `Span` text. Now an unknown pair keeps U+0338, and
+  `audit.negations_check` counts slashes straight from `get_texttrace()`.
+- Overstrikes: TeX books may print ∅ as "/" over "0" (two glyphs, 3.8 pt overlap): `Span` reads the pair as ∅.
+- Bar accents (TeX \\bar) are their own glyph "¯", set before the letter: `layout.bar_accents` joins each to the letter
+  under it as U+0304 (P̄ is "not P" in logic books). Drawn overlines (\\overline, recurring decimals) are stretched
+  1×1 images, not text: `layout.overlines` puts U+0305 on each character under one (no numerator over it, no word).
+- Root bars: TeX big radicals are CMEX glyphs p q r s, not "√" (`layout.ROOT_SIGN`). A root over more than 2
+  characters is cropped whole, and a span that runs past the bar's end is split there (`split_at_roots`).
 - Word spaces are often positional gaps, also inside one span: insert a space for gaps > `space_gap`.
 - Bold regexes: `Black` matched `Fourier-Math-BlackBoard`; keep style regexes specific.
 - Floating point: rounded rects in JSON vs PDF floats; compare containment with a 0.5 pt tolerance.

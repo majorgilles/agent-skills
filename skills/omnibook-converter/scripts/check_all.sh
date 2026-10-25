@@ -8,9 +8,9 @@ for f in content/*.html; do
   a=$(python tools/audit.py "$f" | head -1)
   miss=$(echo "$a" | sed -E 's/.*\| missing ([0-9]+).*/\1/'); extra=$(echo "$a" | sed -E 's/.*\| extra ([0-9]+).*/\1/')
   draw=$(echo "$a" | sed -E 's/.*uncovered drawings ([0-9]+).*/\1/'); pix=$(echo "$a" | sed -E 's/.*pixel mismatches ([0-9]+).*/\1/')
-  st=$(echo "$a" | sed -E 's/.*structure issues ([0-9]+).*/\1/')
-  ok=OK; [ "$v$miss$extra$draw$pix$st" = "000000" ] || { ok=CHECK; fail=1; }
-  printf '%-22s %-5s verify %s | chars missing %s extra %s | drawings %s | pixels %s | structure %s\n' "$(basename "$f")" "$ok" "$v" "$miss" "$extra" "$draw" "$pix" "$st"
+  st=$(echo "$a" | sed -E 's/.*structure issues ([0-9]+).*/\1/'); neg=$(echo "$a" | sed -E 's/.*negations lost ([0-9]+).*/\1/'); bar=$(echo "$a" | sed -E 's/.*bars lost ([0-9]+).*/\1/')
+  ok=OK; [ "$v$miss$extra$draw$pix$st$neg$bar" = "00000000" ] || { ok=CHECK; fail=1; }
+  printf '%-22s %-5s verify %s | chars missing %s extra %s | drawings %s | pixels %s | structure %s | negations %s | bars %s\n' "$(basename "$f")" "$ok" "$v" "$miss" "$extra" "$draw" "$pix" "$st" "$neg" "$bar"
 done
 echo "details: work/audit/<file>.json (+ PNGs of anything unaccounted for)"
 exit $fail

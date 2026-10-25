@@ -80,7 +80,11 @@ Python needs `pymupdf`; audit pixel checks need Playwright + Chromium (`CHROMIUM
 - `audit.py`: every glyph outside crops is in the HTML (all fonts); every drawing and image is inside a crop or is
   known page furniture (backgrounds, rules, bullets, badges, link underlines, panels, table rules); every crop's ink
   matches the PDF as rendered by a browser; exercise numbering, solutions, listing annotations, unique ids;
-  for scans, every non-text ink region is shown.
+  for scans, every non-text ink region is shown; **meaning marks**, counted from the PDF and not through the converter
+  (a lost one reverses or changes the meaning, while the character totals can still balance):
+  `negations` (every negation slash and negated glyph: ⇏ must never read ⇒) and `bars` (every bar accent P̄ "not P",
+  z̄, and every drawn overline 1.8̅1̅3̅, u̅+̅v̅ outside a crop is on the same characters in the HTML).
+  `crops.py check` also fails a LaTeX transcription that drops or adds a negation.
 
 When the converter meets a layout it does not know, read [PITFALLS.md](PITFALLS.md) before changing it, and rerun
 the gate on the reference books after any converter change (regressions are common).

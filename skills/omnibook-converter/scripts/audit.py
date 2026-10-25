@@ -10,7 +10,7 @@ reading order, this accounts for *everything* printed on the pages:
 Writes work/audit/<slug>.json (+ PNGs of anything unaccounted for) and exits 1 if anything is unaccounted for."""
 import sys, os, re, json, html, pathlib, collections, pymupdf
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from layout import page_spans, page_furniture, loose_marks, _white, TOP, BOTTOM, OCR
+from layout import page_spans, page_furniture, loose_marks, _white, TOP, BOTTOM, OCR, NEGATED, ACCENTS, overlines, char_key, bar_accents
 from bookprofile import pdf_path
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -75,6 +75,67 @@ def pdf_chars(pages, crops, doc):
                 if not c.isspace(): cnt[c] += 1; where[c].append(pno)
             if t.rstrip().endswith('-'): hyph += 1
     return cnt, hyph, where
+
+
+def negations_check(pages, crops, doc, src):
+    """Every negation printed outside a crop must be negated in the HTML: a lost slash reverses the meaning
+    ("does not imply" read as "implies"). Counted straight from the PDF, not through layout.Span: negation slashes
+    (U+0338, drawn over a symbol) plus precomposed negated glyphs (≠, ∉, ⇏, ...), against the negated signs and
+    combining slashes in the visible HTML text. Returns [] or one issue with the PDF pages that carry negations."""
+    n_pdf, where = 0, []
+    for pno in pages:
+        boxes = crops.get(pno, [])
+        chars = [c for b in doc[pno].get_text('rawdict')['blocks'] for l in b.get('lines', []) for s in l['spans']
+                 for c in s['chars'] if c['c'].strip() and c['c'] != '\u0338']
+        def out(c):                                            # the centre of the glyph decides, as for a span
+            r = pymupdf.Rect(c['bbox']); return not any(pymupdf.Point((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2) in b for b in boxes)
+        def base(x, y):                                        # the symbol a slash is drawn over (same origin)
+            return next((c for c in chars if abs(c['origin'][0] - x) < 0.6 and abs(c['origin'][1] - y) < 0.6), None)
+        k = 0
+        for sp in doc[pno].get_texttrace():
+            for ch in sp['chars']:
+                if ch[0] == 0x338:
+                    c = base(*ch[2])
+                    k += 1 if c is None or out(c) else 0       # a slash over nothing is still a negation to account for
+        k += sum(1 for c in chars if c['c'] in NEGATED and out(c))
+        n_pdf += k
+        if k: where.append(pno)
+    text = re.sub(r'<!--.*?-->|<span class="tex"[^>]*>.*?</span>|\\\(.*?\\\)|\\\[.*?\\\]', ' ', src, flags=re.S)
+    text = html.unescape(re.sub(r'<[^>]+>', '', text))
+    n_html = sum(1 for c in text if c in NEGATED or c == '\u0338')
+    return [] if n_pdf == n_html else [{'pdf_negations': n_pdf, 'html_negations': n_html, 'pages': where}]
+
+
+def bars_check(pages, crops, doc, src):
+    """Bars change the meaning (P̄ "not P", z̄ conjugate, 1.8̅1̅3̅ recurring, √ over a sum): none may be lost.
+    1. every bar accent glyph outside a crop is a combining macron (U+0304) in the HTML, and no loose "¯" is left;
+    2. every drawn overline outside a crop is in the HTML over the same characters (combining U+0305 on each)."""
+    issues, n_pdf, runs, native_overlines = [], 0, [], 0
+    for pno in pages:
+        boxes = crops.get(pno, [])
+        raw = [s for b in doc[pno].get_text('rawdict')['blocks'] for l in b.get('lines', []) for s in l['spans']]
+        chars = [c for s in raw for c in s['chars'] if c['c'].strip()]
+        out = lambda c: not any(pymupdf.Point((c['bbox'][0] + c['bbox'][2]) / 2, (c['bbox'][1] + c['bbox'][3]) / 2) in b
+                                for b in boxes)
+        drop, over = bar_accents(raw)                          # an accent counts where its letter is (as the converter places it)
+        n_pdf += sum(1 for c in chars if char_key(c) in over and out(c))
+        n_pdf += sum(1 for c in chars if c['c'] in ACCENTS and char_key(c) not in drop and out(c))   # on no letter: lost
+        n_pdf += sum(1 for c in chars if c['c'] == '\u0304' and out(c))   # already combined in the text layer (OCR)
+        native_overlines += sum(1 for c in chars if c['c'] == '\u0305' and out(c))
+        keys = overlines(doc[pno], raw)
+        line = sorted((c for c in chars if char_key(c) in keys and out(c)), key=lambda c: (round(c['origin'][1]), c['origin'][0]))
+        if line: runs.append((pno, ''.join(c['c'] + '\u0305' for c in line)))
+    text = re.sub(r'<!--.*?-->|<span class="tex"[^>]*>.*?</span>|\\\(.*?\\\)|\\\[.*?\\\]', ' ', src, flags=re.S)
+    text = html.unescape(re.sub(r'<[^>]+>', '', text))
+    flat = ''.join(c for c in text if not c.isspace())
+    n_html = text.count('\u0304')
+    if n_pdf != n_html: issues.append({'bar_accents_pdf': n_pdf, 'combining_macrons_html': n_html})
+    if any(c in text for c in ACCENTS): issues.append({'loose_bar_accents_html': sum(text.count(c) for c in ACCENTS)})
+    marked = sum(1 for c in flat if c == '\u0305')
+    expected = sum(r.count('\u0305') for _, r in runs) + native_overlines
+    if marked != expected: issues.append({'overlined_chars_pdf': expected, 'overlined_chars_html': marked,
+                                          'pages': [p for p, _ in runs]})
+    return issues
 
 
 def words_in_crops(pages, crops, doc):
@@ -264,22 +325,26 @@ def main(f, pixels=True):
         'uncovered_drawings': drawings_check(pages, regions, doc, out_dir, slug),
         'figure_pixels': pixels_check(src, doc, browser) if pixels else 'skipped',
         'structure': structure_check(src, slug),
+        'negations': negations_check(pages, crops, doc, src),
+        'bars': bars_check(pages, crops, doc, src),
         'words_in_crops': words_in_crops(pages, crops, doc),   # review list, not a failure
         'lines_not_found': missing_lines(pages, crops, doc, src) if missing else [],
     }
     if browser: browser.close()
     (out_dir / f'{slug}.json').write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding='utf-8')
     fails = len(report['missing_chars']) + len(report['extra_chars']) + len(report['uncovered_drawings']) \
-        + (len(report['figure_pixels']) if pixels else 0) + len(report['structure'])
+        + (len(report['figure_pixels']) if pixels else 0) + len(report['structure']) + len(report['negations']) + len(report['bars'])
     print(f"{f}: {report['pdf_chars']} chars in PDF outside crops, {report['html_chars']} in HTML, {report['crops']} crops | "
           f"missing {sum(missing.values())} {''.join(list(missing)[:20])!r} | extra {sum(extra.values())} {''.join(list(extra)[:20])!r} | "
           f"uncovered drawings {len(report['uncovered_drawings'])} | figure pixel mismatches "
-          f"{len(report['figure_pixels']) if pixels else 'skipped'} | structure issues {len(report['structure'])}")
+          f"{len(report['figure_pixels']) if pixels else 'skipped'} | structure issues {len(report['structure'])} | negations lost {len(report['negations'])} | bars lost {len(report['bars'])}")
     if report['words_in_crops']:
         print(f"  review: {len(report['words_in_crops'])} crops contain prose words "
               f"({sum(c['words'] for c in report['words_in_crops'])} words); see words_in_crops in the JSON")
     for s in report['lines_not_found'][:8]: print('  line not in HTML:', s['page'], s['y'], s['text'][:50])
     for s in report['structure']: print('  structure:', s)
+    for s in report['negations']: print('  NEGATION LOST (meaning reversed):', s)
+    for s in report['bars']: print('  BAR LOST (meaning changed):', s)
     for d in report['uncovered_drawings'][:10]: print('  uncovered:', d)
     if pixels:
         for d in report['figure_pixels'][:10]: print('  pixels:', d)

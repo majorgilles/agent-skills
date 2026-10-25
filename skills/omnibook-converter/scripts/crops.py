@@ -46,15 +46,26 @@ def export(size):
 NAMED = r'\\(lim|log|ln|sin|cos|tan|cot|sec|csc|exp|max|min|gcd|lcm|mod|bmod|pmod|det|inf|sup|arctan|arcsin)(?![a-zA-Z])'
 
 
+NOT_TEX = re.compile(r'\\(?:not\b|neq?\b|notin|nmid|nparallel|nexists|nleq?|ngeq?|nless|ngtr|nsubseteq?|nsupseteq?|'
+                     r'nsubset|nsupset|n[lL]eftarrow|n[rR]ightarrow|n[lL]eftrightarrow|ncong|nsim|nprec|nsucc|nvdash|nvDash)')
+NOT_CHARS = '≠∉⊈⊄⊉⊅≢∤∄≮≯≰≱≁≉⇏⇍⇎↛↚↮∌≇≄⊀⊁⊬⊭∦≭⋢⋣\u0338'
+
+
+def negations(s):
+    """Negations (≠, ∉, ⇏, a combining slash, \\neq, \\not, \\nRightarrow ...): a lost one reverses the meaning."""
+    return len(NOT_TEX.findall(s)) + sum(1 for c in s if c in NOT_CHARS)
+
+
 def signature(s):
-    """Digits, latin letters and blackboard letters: the part of a formula a transcription must preserve."""
+    """Digits, latin letters, blackboard letters and negations: the part of a formula a transcription must preserve."""
+    neg = collections.Counter({'NOT': negations(s)})
     bb = collections.Counter('bb' + c for c in re.findall(r'\\mathbb\{([A-Z])\}', s))
     bb += collections.Counter('bb' + {'ℕ': 'N', 'ℤ': 'Z', 'ℚ': 'Q', 'ℝ': 'R', 'ℂ': 'C'}[c] for c in re.findall('[ℕℤℚℝℂ]', s))
     s = re.sub(r'\\mathbb\{[A-Z]\}', ' ', s)
     s = re.sub(r'\\(?:mathscr|mathcal|mathrm|text|operatorname)\{', '{', s)
     s = re.sub(NAMED, lambda m: ' ' + m.group(1).replace('bmod', 'mod').replace('pmod', 'mod') + ' ', s)
     s = re.sub(r'\\[a-zA-Z]+', ' ', s)                        # other commands (\frac, \sqrt, \pi ...) carry no digits/letters
-    return bb + collections.Counter(c for c in s if c.isdigit() or c.isascii() and c.isalpha())
+    return neg + bb + collections.Counter(c for c in s if c.isdigit() or c.isascii() and c.isalpha())
 
 
 def load_latex():
@@ -85,7 +96,7 @@ def check():
         tl = items.get(i, {}).get('text_layer', '')
         if signature(tl) - signature(t) or signature(t) - signature(tl):   # omitted or invented digits/letters
             bad.append((i, tl, t))
-    print(f'{len(tex)} transcribed, {len(missing)} missing, {len(bad)} failing the digit/letter check')
+    print(f'{len(tex)} transcribed, {len(missing)} missing, {len(bad)} failing the digit/letter/negation check')
     for b in bad[:40]: print('  ', b)
     (LATEX / 'failed.json').write_text(json.dumps([b[0] for b in bad]), encoding='utf-8')
 
