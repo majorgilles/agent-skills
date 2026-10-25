@@ -109,7 +109,8 @@ def negations_check(pages, crops, doc, src):
 def bars_check(pages, crops, doc, src):
     """Bars change the meaning (P̄ "not P", z̄ conjugate, 1.8̅1̅3̅ recurring, √ over a sum): none may be lost.
     1. every bar accent glyph outside a crop is a combining macron (U+0304) in the HTML, and no loose "¯" is left;
-    2. every drawn overline outside a crop is in the HTML over the same characters (combining U+0305 on each)."""
+    2. every drawn overline or long root bar is inside a crop: combining overlines on separate characters do not join
+       on screen (u̅ +̅ v̅ reads ū + v̄), so a bar over text outside a crop counts as lost."""
     issues, n_pdf, runs, native_overlines = [], 0, [], 0
     for pno in pages:
         boxes = crops.get(pno, [])
@@ -124,17 +125,16 @@ def bars_check(pages, crops, doc, src):
         native_overlines += sum(1 for c in chars if c['c'] == '\u0305' and out(c))
         keys = overlines(doc[pno], raw)
         line = sorted((c for c in chars if char_key(c) in keys and out(c)), key=lambda c: (round(c['origin'][1]), c['origin'][0]))
-        if line: runs.append((pno, ''.join(c['c'] + '\u0305' for c in line)))
+        if line: runs.append((pno, ''.join(c['c'] for c in line)))
     text = re.sub(r'<!--.*?-->|<span class="tex"[^>]*>.*?</span>|\\\(.*?\\\)|\\\[.*?\\\]', ' ', src, flags=re.S)
     text = html.unescape(re.sub(r'<[^>]+>', '', text))
     flat = ''.join(c for c in text if not c.isspace())
     n_html = text.count('\u0304')
     if n_pdf != n_html: issues.append({'bar_accents_pdf': n_pdf, 'combining_macrons_html': n_html})
     if any(c in text for c in ACCENTS): issues.append({'loose_bar_accents_html': sum(text.count(c) for c in ACCENTS)})
+    if runs: issues.append({'bars_outside_crops': [f'p{p}: {t}' for p, t in runs]})
     marked = sum(1 for c in flat if c == '\u0305')
-    expected = sum(r.count('\u0305') for _, r in runs) + native_overlines
-    if marked != expected: issues.append({'overlined_chars_pdf': expected, 'overlined_chars_html': marked,
-                                          'pages': [p for p, _ in runs]})
+    if marked != native_overlines: issues.append({'combining_overlines_html': marked, 'in_pdf_text': native_overlines})
     return issues
 
 

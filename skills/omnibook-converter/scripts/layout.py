@@ -108,8 +108,18 @@ def overlines(page, raw):
     it (not a fraction bar). Conjugates of sums (u+v with a bar), recurring decimals (1.813 with a bar over 813) and
     the radicand of a root: a lost bar changes the meaning, so each character gets a combining overline. Words of 3+
     letters under a long rule are a table header, not math."""
+    return overline_scan(page, raw)[0]
+
+
+def overline_bars(page, raw):
+    """The drawn overlines that are not root bars (u+v with a bar, 1.813 with a bar): each is cropped whole with what
+    it covers. Combining marks on separate characters do not join into one bar on screen (u̅ +̅ v̅ reads ū + v̄)."""
+    return overline_scan(page, raw)[1]
+
+
+def overline_scan(page, raw):
     chars = [dict(c, size=s['size'], font=s['font']) for s in raw for c in s['chars'] if c['c'].strip()]
-    keys = set()
+    keys, plain = set(), []
     for r in map(pymupdf.Rect, loose_marks(page)):
         if r.height > 1.6 or r.width < 3: continue
         inx = lambda c: r.x0 - 0.5 <= (c['bbox'][0] + c['bbox'][2]) / 2 <= r.x1 + 0.5
@@ -124,22 +134,25 @@ def overlines(page, raw):
         root = any(ROOT_SIGN(c['font'], c['c']) and abs(c['bbox'][2] - r.x0) < 2.5 for c in chars)
         if root and len(text) <= 2: continue                   # √2, √n: the root bar adds nothing in text
         keys |= {char_key(c) for c in under}
-    return keys
+        if not root: plain.append(r)
+    return keys, plain
 
 
-def split_at_roots(page, raw):
-    """A text span that runs past the end of a root bar ("√(n+2" then "2. Then") is split there, so the root can be
-    cropped whole without cutting a span."""
+def split_at_bars(page, raw):
+    """A text span that runs past either end of a root bar or an overline ("√(n+2" then "2. Then", "813 as a fraction")
+    is split there, so the bar can be cropped whole without cutting a span."""
     bars = [pymupdf.Rect(d['rect']) for d in page.get_drawings() if d['rect'].height < 1.2]
     bars += [r for r in map(pymupdf.Rect, loose_marks(page)) if r.height < 1.2]
     bars = [r for r in bars if any(ROOT_SIGN(s['font'], ''.join(c['c'] for c in s['chars'])) and abs(s['bbox'][2] - r.x0) < 1.5
                                    and s['bbox'][1] - 1 <= r.y0 <= s['bbox'][3] for s in raw)]
+    bars += overline_bars(page, raw)
     if not bars: return raw
     out = []
     for s in raw:
-        cut = next((r for r in bars if 0 < s['origin'][1] - r.y1 < 16 and s['bbox'][0] < r.x1 < s['bbox'][2]), None)
+        cut = next((r for r in bars if 0 < s['origin'][1] - r.y1 < 16
+                    and (s['bbox'][0] < r.x1 < s['bbox'][2] or s['bbox'][0] < r.x0 < s['bbox'][2])), None)
         if cut is None or len(s['chars']) < 2: out.append(s); continue
-        side = [(c['bbox'][0] + c['bbox'][2]) / 2 <= cut.x1 + 0.5 for c in s['chars']]
+        side = [cut.x0 - 0.5 <= (c['bbox'][0] + c['bbox'][2]) / 2 <= cut.x1 + 0.5 for c in s['chars']]
         groups = []
         for c, k in zip(s['chars'], side):
             if groups and groups[-1][0] == k: groups[-1][1].append(c)
@@ -161,7 +174,7 @@ def page_spans(page):
         key = lambda s: (s['font'], round(s['origin'][0], 1), round(s['origin'][1], 1))   # the ink, so take the
         exact = {key(s): s for s in spans(pymupdf.TEXTFLAGS_RAWDICT | pymupdf.TEXT_ACCURATE_BBOXES) if odd(s)}   # outlines' boxes
         raw = [exact.get(key(s), s) if odd(s) else s for s in raw]
-    raw = split_at_roots(page, raw)
+    raw = split_at_bars(page, raw)
     accents = bar_accents(raw) + (overlines(page, raw),)
     return [Span(s, slashes, accents) for s in raw if s['chars'] and TOP <= s['bbox'][1] <= BOTTOM]   # space-only spans are word gaps
 
@@ -581,6 +594,21 @@ def analyse(page):
         for t in under: box |= t.rect()
         boxes = row_boxes[id(home_row)]
         hit = [i for i, b in enumerate(boxes) if (b + (-1, -1, 1, 1)).intersects(box)]   # one crop, never the sign twice
+        for i in hit: box |= boxes[i]
+        row_boxes[id(home_row)] = [b for i, b in enumerate(boxes) if i not in hit] + [box]
+    raw = [s for b in page.get_text('rawdict')['blocks'] for l in b.get('lines', []) for s in l['spans']]
+    for r in overline_bars(page, raw):                         # an overline: the bar and what it covers, as one crop
+        under = [t for t in text_spans if t.text.strip() and r.x0 - 0.5 <= (t.x0 + t.x1) / 2 <= r.x1 + 0.5
+                 and 0 < t.base - r.y1 < 16]
+        if not under or not rows: continue
+        full = [t.base for t in under if t.size >= NORMAL]
+        line = min(full) if full else min(t.base for t in under)
+        under = [t for t in under if t.base <= line + 4]
+        home_row = min(rows, key=lambda row: abs(row.base - line))
+        box = pymupdf.Rect(r)
+        for t in under: box |= t.rect()
+        boxes = row_boxes[id(home_row)]
+        hit = [i for i, b in enumerate(boxes) if (b + (-1, -1, 1, 1)).intersects(box)]
         for i in hit: box |= boxes[i]
         row_boxes[id(home_row)] = [b for i, b in enumerate(boxes) if i not in hit] + [box]
     wordy = lambda t: re.search(r'[^\W\d_]{3,}', re.sub(MATH_NAMES, ' ', t)) is not None   # prose, not cos or lim
