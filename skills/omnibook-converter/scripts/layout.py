@@ -480,6 +480,8 @@ def split_at_columns(raw, tables):
 PART_LABEL = re.compile(r'\(\s*(?:[a-z]|[ivx]{1,4})\s*\)')
 
 
+LEAD_LABEL = re.compile(r'\s*(?:\d{1,3}\.|\(?[a-z]\)|\(\s*[a-z]{1,4}\s*\))\s*')
+
 
 def part_key(label):
     """Order of a part label: (a) < (b) < …, (i) < (ii) < (iv) < … (roman when the label is only i, v, x)."""
@@ -750,9 +752,12 @@ def analyse(page):
         columns = any(b.x0 - a.x1 > 25 for a, b in zip(ink, ink[1:]) if a.text.strip() and b.text.strip())   # two columns of items
         if words or columns or not ((len(crops) >= 2 and sum(b.width for b in crops) > 0.4 * (row.x1 - row.x0)) or (tall and boxes)):
             continue
-        whole = pymupdf.Rect(row.spans[0].rect())
-        for t in row.spans: whole.include_rect(t.rect())
+        lead = ink[0] if len(ink) > 1 and LEAD_LABEL.fullmatch(ink[0].text) else None   # "15." or "(a)" stays text: it
+        body = [t for t in row.spans if t is not lead]                                  # numbers the exercise or part
+        whole = pymupdf.Rect(body[0].rect())
+        for t in body: whole.include_rect(t.rect())
         for b in boxes: whole.include_rect(b)
+        if lead: whole.x0 = max(whole.x0, lead.x1 + 0.3)
         for o in rows:                                         # its exponents, numerators, denominators set as rows of their own
             if o is not row and whole.x0 - 2 < o.x0 and o.x1 < whole.x1 + 2 \
                     and (whole + (0, -12, 0, 12)).intersects(pymupdf.Rect(o.x0, o.y0, o.x1, o.y1)) \
@@ -760,7 +765,13 @@ def analyse(page):
                 for t in o.spans: whole.include_rect(t.rect())
                 for b in row_boxes[id(o)]: whole.include_rect(b)
                 row_boxes[id(o)] = [b for b in row_boxes[id(o)] if b in inline]; absorbed.add(id(o))
+        if lead: whole.x0 = max(whole.x0, lead.x1 + 0.3)
         row_boxes[id(row)] = [whole] + [b for b in boxes if b in inline]
+    for row in rows:                                           # a crop starting on a leading "15." or "(a)" (an OCR
+        lead = min(row.spans, key=lambda t: t.x0)              # formula region drawn a little wide) stops after it
+        if LEAD_LABEL.fullmatch(lead.text) and len(row.spans) > 1:
+            for b in row_boxes[id(row)]:
+                if lead.x0 < b.x0 < lead.x1 and b.x1 > lead.x1 + 3: b.x0 = lead.x1 + 0.3
     inside = lambda s, b: (s.rect() & (b + (-1.8, -1.8, 1.8, 1.8))).get_area() > 0.5 * max(s.rect().get_area(), 0.01)
     member = {}                                                # span -> its box, by the audit's rule (the published crop,
     for _ in range(4):                                         # 0.8pt padded, padded 1pt more); the box grows to cover
