@@ -182,7 +182,7 @@ def flow(slug, a, b, skip=()):
         def place(f):                                          # a small figure beside a line of text follows that line
             side = [r for r in rows if r.y0 - 2 < (f.y0 + f.y1) / 2 < r.y1 + 2 and (r.x1 < f.x0 or f.x1 < r.x0)]
             return ('figbeside', side[0].y0 + 0.01) if side and f.height < 40 else ('fig', f.y0)
-        els = [('row', r.y0, r) for r in rows] + [(k, y, f) for f in figs for k, y in [place(f)]]
+        els = [('row', r.y_order, r) for r in rows] + [(k, y, f) for f in figs for k, y in [place(f)]]
         for kind, _, obj in sorted(els, key=lambda e: e[1]):
             yield kind, pno, obj, margin(pno)
 

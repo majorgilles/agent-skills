@@ -77,6 +77,7 @@ class Row:
         self.bullet = False       # a drawn bullet mark sits left of the row
         self.panel = None         # the shaded box (listing / sidebar) the row sits in, if any
         self.table = None         # the Table the row belongs to, if any
+        self.y_order = self.y0    # reading position (part_columns reads columns of parts down, then across)
 
     def text(self): return ''.join(s.text for s in self.spans)
 
@@ -175,6 +176,8 @@ def page_spans(page):
         exact = {key(s): s for s in spans(pymupdf.TEXTFLAGS_RAWDICT | pymupdf.TEXT_ACCURATE_BBOXES) if odd(s)}   # outlines' boxes
         raw = [exact.get(key(s), s) if odd(s) else s for s in raw]
     raw = split_at_bars(page, raw)
+    ruled = _RULED[page.parent.name, page.number] = rule_tables(page, raw)
+    raw = split_at_columns(raw, ruled)
     accents = bar_accents(raw) + (overlines(page, raw),)
     return [Span(s, slashes, accents) for s in raw if s['chars'] and TOP <= s['bbox'][1] <= BOTTOM]   # space-only spans are word gaps
 
@@ -418,6 +421,125 @@ def page_tables(page, ignore, panels=()):
     return tables, used
 
 
+_RULED = {}                                                    # (file, page) -> rule_tables(), found by page_spans
+
+
+def rule_tables(page, raw):
+    """Tables ruled with stretched 1×1 images (Ghostscript), whose rules have no column segments: a rule and a lower
+    one of the same extent less than 160pt apart, with text between. Columns are the runs of ink (character boxes of
+    every line, the header's too) separated by a gap of 2.5pt or more in every line; at least two of them. A rule
+    between the two marks the header; without one, a line just above the top rule is the header (no top rule drawn).
+    -> [(bbox, column boundaries, header y or None, rule rects)]."""
+    rules = sorted((r for r in map(pymupdf.Rect, loose_marks(page)) if r.height < 1.5 and r.width > 30 and TOP < r.y0 < BOTTOM),
+                   key=lambda r: r.y0)
+    chars = [c for sp in raw for c in sp['chars'] if c['c'].strip()]
+    found, used = [], set()
+    for i, top in enumerate(rules):
+        if tuple(top) in used: continue
+        bottom = next((r for r in rules[i + 1:] if abs(r.x0 - top.x0) < 3 and abs(r.x1 - top.x1) < 3 and r.y0 - top.y0 < 160), None)
+        if bottom is None: continue
+        within = lambda c, y0, y1: y0 < c['origin'][1] < y1 and top.x0 - 3 < c['bbox'][0] and c['bbox'][2] < top.x1 + 3
+        body = [c for c in chars if within(c, top.y1, bottom.y0)]
+        mid = [r for r in rules if top.y0 < r.y0 < bottom.y0 and top.x0 - 3 < r.x0 and r.x1 < top.x1 + 3]
+        above = [] if mid else [c for c in chars if within(c, top.y0 - 14, top.y0)]
+        lines = {round(c['origin'][1]) for c in above}
+        if any(round(c['origin'][1]) in lines and not within(c, top.y0 - 14, top.y0) for c in chars):
+            above = []                                         # a line of a paragraph (it runs past the rules), not a header
+        if len({round(c['origin'][1]) for c in body}) < 2: continue
+        runs = []
+        for c in sorted(body + above, key=lambda c: c['bbox'][0]):
+            if runs and c['bbox'][0] - runs[-1][1] < 2.5: runs[-1][1] = max(runs[-1][1], c['bbox'][2])
+            else: runs.append([c['bbox'][0], c['bbox'][2]])
+        if not 2 <= len(runs) <= 8: continue
+        y0 = min(c['bbox'][1] for c in above) - 1 if above else top.y0 - 1
+        head = (mid[0].y0 + mid[0].y1) / 2 if mid else (top.y0 + top.y1) / 2 if above else None
+        cols = [top.x0] + [(a[1] + b[0]) / 2 for a, b in zip(runs, runs[1:])] + [top.x1]
+        found.append((pymupdf.Rect(top.x0, y0, top.x1, bottom.y1 + 1), cols, head, [top, bottom, *mid]))
+        used |= {tuple(r) for r in (top, bottom, *mid)}
+    return found
+
+
+def split_at_columns(raw, tables):
+    """A span that runs across a column boundary of a ruled table ("3n n" over two cells) is split there."""
+    out = []
+    for s in raw:
+        t = next((t for t in tables if t[0].y0 < s['origin'][1] < t[0].y1 and t[0].x0 - 3 < s['bbox'][0] < t[0].x1), None)
+        if t is None or len(s['chars']) < 2: out.append(s); continue
+        groups = []
+        for c in s['chars']:
+            k = sum(x < (c['bbox'][0] + c['bbox'][2]) / 2 for x in t[1][1:-1])
+            if groups and groups[-1][0] == k: groups[-1][1].append(c)
+            else: groups.append((k, [c]))
+        for _, cs in groups:
+            bb = pymupdf.Rect(cs[0]['bbox'])
+            for c in cs: bb |= c['bbox']
+            out.append(dict(s, chars=cs, bbox=(bb.x0, s['bbox'][1], bb.x1, s['bbox'][3]), origin=cs[0]['origin']))
+    return out
+
+
+PART_LABEL = re.compile(r'\(\s*(?:[a-z]|[ivx]{1,4})\s*\)')
+
+
+
+def part_key(label):
+    """Order of a part label: (a) < (b) < …, (i) < (ii) < (iv) < … (roman when the label is only i, v, x)."""
+    t = label.strip('() ').replace(' ', '')
+    if set(t) <= set('ivx') and t != 'x' and (len(t) > 1 or t in 'iv'):
+        v, last = 0, 0
+        for c in reversed(t):
+            n = {'i': 1, 'v': 5, 'x': 10}[c]; v += -n if n < last else n; last = max(last, n)
+        return 100 + v if len(t) > 1 or t == 'v' else ord(t) - ord('a')
+    return ord(t[0]) - ord('a')
+
+
+def part_columns(rows):
+    """Exercise parts set in columns ("(a) …  (f) …" on one line, (a)–(e) down the left, (f)–(i) down the right) are read
+    column by column: each row is split at the labels of the further columns, and the pieces are ordered down the first
+    column, then down the next (`y_order`, which the converter sorts by). -> rows."""
+    def labels(row):                                           # x of each part label: at the row start or after a gap
+        out = []
+        for i, sp in enumerate(row.spans):
+            if not sp.text.lstrip().startswith('(') or not PART_LABEL.match(''.join(t.text for t in row.spans[i:i + 4]).lstrip()):
+                continue
+            if i == 0 or sp.x0 - max(t.x1 for t in row.spans[:i]) >= 6: out.append(sp.x0)
+        return out if out and out[0] - row.x0 < 1 else []
+    marks = [labels(r) for r in rows]
+    out, i = [], 0
+    while i < len(rows):
+        j = i
+        while j < len(rows) and marks[j] and abs(marks[j][0] - marks[i][0]) < 3 and (j == i or rows[j].y0 - rows[j - 1].y1 < 8):
+            j += 1
+        group = rows[i:j]
+        cuts = sorted({round(x) for m in marks[i:j] for x in m[1:]})
+        cuts = [x for x in cuts if sum(any(abs(x - y) < 3 for y in m[1:]) for m in marks[i:j]) >= 2]
+        merged = []
+        for x in cuts:
+            if not merged or x - merged[-1] > 6: merged.append(x)
+        if len(group) < 2 or not merged:
+            out.append(rows[i]); i += 1; continue
+        columns = [[] for _ in range(len(merged) + 1)]
+        for r, m in zip(group, marks[i:j]):                    # cut only where this row has a label (a long part
+            own = [k for k, x in enumerate(merged) if any(abs(x - y) < 3 for y in m[1:])]   # runs on past the column)
+            edges = [-1e9] + [merged[k] - 3 for k in own] + [1e9]
+            cols = [0] + [k + 1 for k in own]
+            for k, lo, hi in zip(cols, edges, edges[1:]):
+                part = [sp for sp in r.spans if lo <= sp.x0 < hi]
+                if ''.join(sp.text for sp in part).strip(): columns[k].append(Row(part))
+        blocks = []                                            # [label key, rows]: a part and the lines that continue it
+        for col in columns:
+            for r in col:
+                m = PART_LABEL.match(''.join(t.text for t in r.spans[:4]).lstrip())
+                if m or not blocks: blocks.append([part_key(m.group(0)) if m else -1, [r]])
+                else: blocks[-1][1].append(r)
+        blocks.sort(key=lambda b: b[0])                        # (a) … (e) left, (f) … (h) right, (i) below: a to i
+        step = (group[-1].y1 - group[0].y0) / (sum(map(len, columns)) + 1)
+        for n, r in enumerate(x for _, rs in blocks for x in rs):
+            r.y_order = group[0].y0 + n * step
+            out.append(r)
+        i = j
+    return out
+
+
 def build_rows(spans, bars=()):
     """Rows are defined by normal-size text baselines; small spans (scripts, fraction parts, matrix entries)
     join the nearest baseline, and so do full-size spans sitting on or under a fraction bar; big delimiters join
@@ -536,6 +658,9 @@ def analyse(page):
     spans = page_spans(page)
     ignore, panels, marks = page_furniture(page, spans)
     tables, ruled = page_tables(page, ignore, panels)
+    more = [t for t in _RULED.get((page.parent.name, page.number), []) if not any(t[0].intersects(o.bbox) for o in tables)]
+    tables += [Table(bbox, cols, head) for bbox, cols, head, _ in more]
+    rules = [r for t in more for r in t[3]]
     ignore = ignore | ruled
     figs = figure_boxes(page, spans, ignore)
     formulas = [pymupdf.Rect(r) for r in ocr_figures('formulas').get(str(page.number), [])]   # OCR formula lines: math, not figures
@@ -546,8 +671,10 @@ def analyse(page):
             and d['rect'].height < 1.2 and d['rect'].width < 250 and not any(pymupdf.Rect(d['rect']).intersects(f) for f in figs)]
     vinculum = lambda r: any(t.font in RADICAL and '√' in t.text and abs(t.x1 - r.x0) < 1.5 and t.y0 <= r.y0 <= t.y1 for t in spans)
     bars += [r for r in map(pymupdf.Rect, loose_marks(page))   # bars drawn as stretched images
-             if r.height < 1.2 and 2 < r.width < 250 and TOP < r.y0 < BOTTOM and not vinculum(r) and not any(r.intersects(f) for f in figs)]
+             if r.height < 1.2 and 2 < r.width < 250 and TOP < r.y0 < BOTTOM and not vinculum(r) and not any(r.intersects(f) for f in figs)
+             and r not in rules]
     rows = build_rows(text_spans, bars)
+    rows = part_columns(rows)
     for t in tables:                                            # header-rule-only tables: grow down over aligned rows
         if not t.open: continue
         below = sorted((r for r in rows if r.y0 > t.header_y), key=lambda r: r.y0)

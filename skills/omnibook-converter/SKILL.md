@@ -84,6 +84,11 @@ Python needs `pymupdf`; audit pixel checks need Playwright + Chromium (`CHROMIUM
   (a lost one reverses or changes the meaning, while the character totals can still balance):
   `negations` (every negation slash and negated glyph: ⇏ must never read ⇒) and `bars` (every bar accent P̄ "not P",
   z̄, and every drawn overline 1.8̅1̅3̅, u̅+̅v̅ outside a crop is on the same characters in the HTML).
+  `untabled`: a pair of rules of one extent with lines of text between that did not become a `<table>` (printed as
+  lines, columns run together: "it is not raining no deduction possible"). Review, not a failure:
+  `columns_to_review` lists plain lines that share a column gap outside tables; look at each in the HTML and record
+  real tables as residue or fix them. Exercise parts set in columns ((a)–(e) left, (f)–(i) right) are read in label
+  order (`layout.part_columns`).
   `crops.py check` also fails a LaTeX transcription that drops or adds a negation.
 
 When the converter meets a layout it does not know, read [PITFALLS.md](PITFALLS.md) before changing it, and rerun

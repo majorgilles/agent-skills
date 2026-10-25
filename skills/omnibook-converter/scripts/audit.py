@@ -10,7 +10,7 @@ reading order, this accounts for *everything* printed on the pages:
 Writes work/audit/<slug>.json (+ PNGs of anything unaccounted for) and exits 1 if anything is unaccounted for."""
 import sys, os, re, json, html, pathlib, collections, pymupdf
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from layout import page_spans, page_furniture, loose_marks, _white, TOP, BOTTOM, OCR, NEGATED, ACCENTS, overlines, char_key, bar_accents
+from layout import PART_LABEL, page_spans, page_furniture, loose_marks, _white, TOP, BOTTOM, OCR, NEGATED, ACCENTS, overlines, char_key, bar_accents
 from bookprofile import pdf_path
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -300,6 +300,70 @@ def structure_check(src, slug):
     return issues
 
 
+def tables_check(pages, crops, regions, doc):
+    """Text set in columns must be a <table>. Failure (`ruled`): two rules of one extent less than 160pt apart with lines of
+    text between, not inside a table or a crop. Review (no `ruled`): three or more consecutive plain lines (body size
+    only: no scripts, big delimiters, crops or bars, which make math displays) sharing a blank of 6.5pt or more at the
+    same x; gaps next to labels (exercise and part numbers set in columns), equation and page numbers and dot leaders
+    do not count. Printed as plain lines ("it is not raining no deduction possible") the columns run together.
+    -> [{page, y, lines[, ruled]}]."""
+    found = []
+    for pno in pages:
+        boxes, tabs = crops.get(pno, []), regions.get(pno, [])
+        spans = [s for b in doc[pno].get_text('rawdict')['blocks'] for l in b.get('lines', []) for s in l['spans']]
+        chars = [(pymupdf.Rect(c['bbox']), c['origin'][1], s['size'], c['c']) for s in spans for c in s['chars']
+                 if c['c'].strip() and TOP <= c['bbox'][1] <= BOTTOM]
+        body = max((c[2] for c in chars), key=lambda z: sum(1 for c in chars if c[2] == z), default=10)
+        inside = lambda r, bs: any(pymupdf.Point((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2) in b for b in bs)
+        odd = lambda r, sz: sz < 0.85 * body or r.height > 2 * sz
+        lines = {}                                             # baseline -> [(rect, char)], plain
+        for r, y, sz, ch in chars:
+            if odd(r, sz) or inside(r, tabs): continue
+            k = next((k for k in lines if abs(k - y) < 2), y)
+            lines.setdefault(k, [[], True])[0].append((r, ch))
+        bars = [pymupdf.Rect(d['rect']) for d in doc[pno].get_drawings() if d['rect'].height < 1.5 and d['rect'].width > 2]
+        bars += [pymupdf.Rect(r) for r in loose_marks(doc[pno]) if r[3] - r[1] < 1.5]
+        twin = lambda b: any(o is not b and abs(o.x0 - b.x0) < 3 and abs(o.x1 - b.x1) < 3 and abs(o.y0 - b.y0) < 160 for o in bars)
+        bars = [b for b in bars if not twin(b)]                # fraction bars, overlines, roots (a pair of rules is a table)
+        for k, line in lines.items():
+            x0, x1 = min(r.x0 for r, _ in line[0]), max(r.x1 for r, _ in line[0])
+            line[1] = not any(k - 14 < b.y0 < k + 6 and b.x0 < x1 and x0 < b.x1 for b in bars) and not any(odd(r, sz) and k - 1.2 * sz < (r.y0 + r.y1) / 2 < k + 0.4 * sz for r, _, sz, _ in chars) \
+                and not any(b.y0 < k and b.y1 > k - 4 for b in boxes)
+        gaps = {}
+        for y, (ink, plain) in lines.items():
+            if not plain: continue
+            ink.sort(key=lambda t: t[0].x0)
+            segs = [[ink[0]]]
+            for t in ink[1:]:
+                if t[0].x0 - max(r.x1 for r, _ in segs[-1]) >= 6.5: segs.append([t])
+                else: segs[-1].append(t)
+            text = lambda g: ''.join(c for _, c in g)
+            if len(segs) > 1 and re.fullmatch(r'\(\d+(\.\d+)*\)|\d+', text(segs[-1])): segs.pop()   # equation or page number
+            if not all(any(c.isalnum() for _, c in g) for g in segs) or '..' in ''.join(map(text, segs)):
+                continue                                       # dots (⋮), dot leaders, signs: not cells
+            label = lambda g: re.fullmatch(r'\(\s*\w{1,4}\s*\)|\d{1,3}\.|[a-z]\)', text(g))
+            gaps[y] = [(max(r.x1 for r, _ in a), b[0][0].x0) for a, b in zip(segs, segs[1:])
+                       if not label(a) and not label(b) and not PART_LABEL.match(text(b)) and not re.match(r'\d{1,3}\. ?\S', text(b))]
+            # a gap next to a label is a list set in columns (exercises, parts: read by number, part_columns)
+        rules = [pymupdf.Rect(d['rect']) for d in doc[pno].get_drawings() if d['rect'].height < 1.5 and d['rect'].width > 30]
+        rules += [pymupdf.Rect(r) for r in loose_marks(doc[pno]) if r[3] - r[1] < 1.5 and r[2] - r[0] > 30]
+        for top in rules:                                      # two rules of one extent with lines of text between: a table
+            low = [b for b in rules if abs(b.x0 - top.x0) < 3 and abs(b.x1 - top.x1) < 3 and 0 < b.y0 - top.y0 < 160]
+            if not low or any(b.y0 - top.y0 < 0 and abs(b.x0 - top.x0) < 3 and abs(b.x1 - top.x1) < 3 and top.y0 - b.y0 < 160 for b in rules):
+                continue                                       # not the topmost rule of its group
+            box = top | max(low, key=lambda b: b.y0)
+            inner = {round(y) for r, y, sz, ch in chars if box.y0 < y < box.y1 and box.x0 - 3 < r.x0 and r.x1 < box.x1 + 3}
+            if len(inner) >= 2 and not any(t.intersects(box) for t in tabs) and not any(b.contains(box + (1, 1, -1, -1)) for b in boxes):
+                found.append({'page': pno, 'y': round(top.y0), 'lines': len(inner), 'ruled': True})
+        run = []
+        for y in sorted(gaps) + [None]:
+            shared = run and y is not None and gaps[y] and y - run[-1] < 16 and any(
+                max(a0, b0) < min(a1, b1) for a0, a1 in gaps[y] for b0, b1 in gaps[run[-1]])
+            if shared: run.append(y); continue
+            if len(run) >= 3: found.append({'page': pno, 'y': round(run[0]), 'lines': len(run)})
+            run = [y] if y is not None and gaps[y] else []
+    return found
+
 def main(f, pixels=True):
     src = open(f, encoding='utf-8').read()
     slug = pathlib.Path(f).stem
@@ -317,6 +381,7 @@ def main(f, pixels=True):
     H = html_chars(src)
     missing, extra = P - H, H - P
     if missing.get('-', 0) <= hyph: missing.pop('-', None)          # hyphens of words rejoined across line breaks
+    columns = tables_check(pages, crops, regions, doc)
     report = {
         'file': f, 'pages': [a, b], 'pdf_chars': sum(P.values()), 'html_chars': sum(H.values()),
         'crops': sum(len(v) for v in crops.values()),
@@ -327,17 +392,20 @@ def main(f, pixels=True):
         'structure': structure_check(src, slug),
         'negations': negations_check(pages, crops, doc, src),
         'bars': bars_check(pages, crops, doc, src),
+        'untabled': [t for t in columns if t.get('ruled')],
+        'columns_to_review': [t for t in columns if not t.get('ruled')],   # review list, not a failure
         'words_in_crops': words_in_crops(pages, crops, doc),   # review list, not a failure
         'lines_not_found': missing_lines(pages, crops, doc, src) if missing else [],
     }
     if browser: browser.close()
     (out_dir / f'{slug}.json').write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding='utf-8')
     fails = len(report['missing_chars']) + len(report['extra_chars']) + len(report['uncovered_drawings']) \
-        + (len(report['figure_pixels']) if pixels else 0) + len(report['structure']) + len(report['negations']) + len(report['bars'])
+        + (len(report['figure_pixels']) if pixels else 0) + len(report['structure']) + len(report['negations']) + len(report['bars']) \
+        + len(report['untabled'])
     print(f"{f}: {report['pdf_chars']} chars in PDF outside crops, {report['html_chars']} in HTML, {report['crops']} crops | "
           f"missing {sum(missing.values())} {''.join(list(missing)[:20])!r} | extra {sum(extra.values())} {''.join(list(extra)[:20])!r} | "
           f"uncovered drawings {len(report['uncovered_drawings'])} | figure pixel mismatches "
-          f"{len(report['figure_pixels']) if pixels else 'skipped'} | structure issues {len(report['structure'])} | negations lost {len(report['negations'])} | bars lost {len(report['bars'])}")
+          f"{len(report['figure_pixels']) if pixels else 'skipped'} | structure issues {len(report['structure'])} | negations lost {len(report['negations'])} | bars lost {len(report['bars'])} | columns not in a table {len(report['untabled'])}")
     if report['words_in_crops']:
         print(f"  review: {len(report['words_in_crops'])} crops contain prose words "
               f"({sum(c['words'] for c in report['words_in_crops'])} words); see words_in_crops in the JSON")
@@ -345,6 +413,9 @@ def main(f, pixels=True):
     for s in report['structure']: print('  structure:', s)
     for s in report['negations']: print('  NEGATION LOST (meaning reversed):', s)
     for s in report['bars']: print('  BAR LOST (meaning changed):', s)
+    for s in report['untabled']: print('  RULED TABLE NOT A TABLE (unreadable as lines):', s)
+    if report['columns_to_review']:
+        print(f"  review: {len(report['columns_to_review'])} places with text in columns outside tables; see columns_to_review")
     for d in report['uncovered_drawings'][:10]: print('  uncovered:', d)
     if pixels:
         for d in report['figure_pixels'][:10]: print('  pixels:', d)

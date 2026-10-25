@@ -35,6 +35,9 @@ Drawings
   inside a drawing (dice grids, set diagrams) are labels.
 - Tables: Manning rules are split per column and may have only a header rule (extent from aligned rows);
   `find_tables` also invents grids from aligned text, so require real ruling lines.
+  Ghostscript PDFs draw rules as stretched 1×1 images with no column segments (`layout.rule_tables`): columns are
+  the runs of ink across every line, so spans crossing a column are split; the header is the line between the top
+  two rules, or a line just above the top rule that does not run past it.
 - Raster figures export as PNG rendered from the page (SVG loses soft masks: transparency turns black).
 - MuPDF's SVG reader mis-draws some valid SVGs: judge crops in a browser (audit does).
 - A label 10–14 pt from its drawing: absorb only if isolated, and never at the cost of covering prose.
