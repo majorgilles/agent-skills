@@ -28,7 +28,14 @@ class Span:
             g = fix.get(c['c'], c['c'])
             if g in NEG and any(abs(c['origin'][0] - x) < 0.6 and abs(c['origin'][1] - y) < 0.6 for x, y in slashes): return NEG[g]
             return g
-        self.text = ''.join(glyph(c) for c in s['chars'] if c['c'] != '̸').replace('\xa0', ' ')
+        chars = [c for c in s['chars'] if c['c'] != '̸']
+        out, i = [], 0
+        while i < len(chars):   # an overstrike: "/" printed on top of "0" is the empty set ∅ (two glyphs in the text layer)
+            a, b = chars[i], chars[i + 1] if i + 1 < len(chars) else None
+            if b and {a['c'], b['c']} == {'/', '0'} and b['bbox'][0] < a['bbox'][2] - 1 and a['bbox'][0] < b['bbox'][2] - 1:
+                out.append('∅'); i += 2; continue
+            out.append(glyph(a)); i += 1
+        self.text = ''.join(out).replace('\xa0', ' ')
         self.hard = self.font in EXT and any(c['c'] not in fix for c in s['chars'] if c['c'].strip())
         self.hard |= F['radical_crop'] and self.font in RADICAL and RADICAL[self.font] in ''.join(c['c'] for c in s['chars'])
         self.role = ''            # '', 'sup' or 'sub' (set per row)
