@@ -181,8 +181,8 @@ def flow(slug, a, b, skip=()):
         rows, figs = analyse(PDF[pno])
         def place(f):                                          # a small figure beside a line of text follows that line
             side = [r for r in rows if r.y0 - 2 < (f.y0 + f.y1) / 2 < r.y1 + 2 and (r.x1 < f.x0 or f.x1 < r.x0)]
-            return side[0].y0 + 0.01 if side and f.height < 40 else f.y0
-        els = [('row', r.y0, r) for r in rows] + [('fig', place(f), f) for f in figs]
+            return ('figbeside', side[0].y0 + 0.01) if side and f.height < 40 else ('fig', f.y0)
+        els = [('row', r.y0, r) for r in rows] + [(k, y, f) for f in figs for k, y in [place(f)]]
         for kind, _, obj in sorted(els, key=lambda e: e[1]):
             yield kind, pno, obj, margin(pno)
 
@@ -268,14 +268,18 @@ def convert(slug, a, b, skip=(), solutions=False):
     last_base, pitches, para_y0, para_at = None, [], 0, None
     done_tables, fronts = set(), 0
     for kind, pno, obj, left in flow(slug, a, b, skip):
-        if kind == 'fig':
+        if kind in ('fig', 'figbeside'):
             fig = C.figure(pno, obj)
             if ex and ex['items']:
                 col = min(ex['cols'], key=lambda c: abs(c - (obj.x0 - left))) if ex['cols'] else None   # columns are margin-relative
                 target = [it for it in ex['items'] if it['col'] == col and it['y'] < obj.y1] or ex['items']
                 max(target, key=lambda it: (it['pno'], it['y']))['html'].append(fig)
             else:
-                close_para(); close_listing(); out.append(fig)
+                close_para(); close_listing()
+                if kind == 'figbeside' and out and out[-1].startswith('<p'):   # shown beside its line, as printed
+                    out[-1] = f'<div class="beside">{out[-1]}{fig}</div>'
+                else:
+                    out.append(fig)
             title_row = False
             continue
         row = obj
