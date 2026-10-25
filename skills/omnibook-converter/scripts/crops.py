@@ -4,6 +4,8 @@
   python tools/crops.py apply                 replace crops in content/*.html with \\( latex \\) where a checked transcription exists
 Only short formula snippets go through transcription; prose is never touched."""
 import sys, re, json, hashlib, html, pathlib, collections, pymupdf
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
+from bookprofile import pdf_path
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CROPS, LATEX = ROOT / 'work/crops', ROOT / 'work/latex'
@@ -22,7 +24,7 @@ def key(m):
 
 def export(size):
     CROPS.mkdir(parents=True, exist_ok=True)
-    doc = pymupdf.open(ROOT / 'work/Main.pdf')
+    doc = pymupdf.open(pdf_path())
     by_hash, keys = {}, {}
     for f, m in all_crops():
         k = key(m)
@@ -66,13 +68,13 @@ def load_latex():
 def check():
     items = {i['id']: i for f in CROPS.glob('batch_*.json') for i in json.loads(f.read_text(encoding='utf-8'))}
     # re-read each crop's characters with fonts: Fourier big operators/radicals are encoded as Latin letters (P X R Y p ...)
-    sys.path.insert(0, str(ROOT / 'tools')); from layout import page_spans
-    doc, spans_by_page = pymupdf.open(ROOT / 'work/Main.pdf'), {}
+    from layout import page_spans
+    doc, spans_by_page = pymupdf.open(pdf_path()), {}
     for k, h in json.loads((CROPS / 'keys.json').read_text(encoding='utf-8')).items():
         if h not in items or 'clean' in items[h]: continue
         pno, box = int(k.split(':')[0]), pymupdf.Rect(*map(float, k.split(':')[1].split(',')))
         sp = spans_by_page.setdefault(pno, page_spans(doc[pno]))
-        items[h]['clean'] = ''.join(s.text for s in sp if not s.hard and s.font != 'Fourier-Math-Extension'
+        items[h]['clean'] = ''.join(s.text for s in sp if not s.hard and not s.ext
                                     and (s.rect() & box).get_area() > 0.5 * max(s.rect().get_area(), .01))
     for i in items.values(): i['text_layer'] = i.get('clean', i['text_layer'])
     tex = load_latex()
@@ -89,6 +91,8 @@ def check():
 
 
 def apply():
+    if not (CROPS / 'keys.json').exists():
+        print('no transcriptions yet (run export, the transcription agents and check first): crops stay images'); return
     keys = json.loads((CROPS / 'keys.json').read_text(encoding='utf-8'))
     tex = load_latex()
     failed = set(json.loads((LATEX / 'failed.json').read_text(encoding='utf-8'))) if (LATEX / 'failed.json').exists() else set()
@@ -100,12 +104,13 @@ def apply():
             h = keys.get(key(m))
             if h in tex and h not in failed and (tex[h] or "").strip():
                 n += 1
-                return '\\(' + html.escape(tex[h].strip(), quote=False) + '\\)'
+                return (f'<span class="tex" data-crop="{key(m)}">\\(' + html.escape(tex[h].strip(), quote=False)
+                        + '\\)</span>')                       # the region stays recorded for audit.py
             kept += 1
             return m.group(0)
         f.write_text(IMG.sub(sub, src), encoding='utf-8')
     used = {m for f in (ROOT / 'content').glob('*.html') for m in re.findall(r'src="(figs/m/[^"]+)"', f.read_text(encoding='utf-8'))}
-    stale = [p for p in (ROOT / 'site/figs/m').glob('*.svg') if f'figs/m/{p.name}' not in used]
+    stale = [p for p in (ROOT / 'site/figs/m').glob('*.*') if f'figs/m/{p.name}' not in used]
     for p in stale: p.unlink()                                 # crops replaced by LaTeX are not published
     print(f'replaced {n} crops with LaTeX, kept {kept} as exact images, removed {len(stale)} unused crop files')
 

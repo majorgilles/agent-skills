@@ -1,0 +1,28 @@
+{
+  "_comment": "Manning MEAP chapter PDFs (Verdana body, Franklin Gothic headings, Courier/Type3 code, cueball annotations). Copy to <repo>/profile.json and fill in book.*",
+  "book": {"title": "", "author": "", "id": "", "license_html": "<p>Personal study copy. Not for distribution.</p>", "order": []},
+  "page": {"top": 45, "bottom": 615, "margin_even": 75, "margin_odd": 75},
+  "fonts": {
+    "prose": "^Verdana",
+    "text": "^(FranklinGothic|Helvetica)",
+    "mono": "Courier|^Type3",
+    "bold": "Bold|Demi",
+    "italic": "Italic$",
+    "math_italic": "^$",
+    "fix": {}, "extension": [], "radical": {}
+  },
+  "sizes": {"small": 7.2, "normal_min": 7.5, "title": 18, "dropcap": 99, "section_min": 11},
+  "layout": {"para_pitch": 1.4, "para_indent": 8, "display_indent": 28, "space_gap": 1.2},
+  "patterns": {
+    "chapter_marker": "",
+    "chapter_inline": "^(\\d+)\\s+(\\S.*)$",
+    "section": "^(\\d+)\\.(\\d+)\\s+(.*)",
+    "subsection": "^(\\d+)\\.(\\d+)\\.(\\d+)\\s+(.*)",
+    "subsection_min": 10,
+    "caption_bold": false,
+    "code_continuation": "[CA]",
+    "code_annotation": "\\s#([A-Z])\\s*$",
+    "annotation_text": "^#([A-Z])\\s+"
+  },
+  "code_lang": "python"
+}

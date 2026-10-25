@@ -1,6 +1,7 @@
-"""Synthetic one-page 'coding book' PDF for testing code-block extraction and the in-browser runner.
-  python make_codetest_pdf.py work/codetest.pdf
-  BOOK_PDF=work/codetest.pdf python tools/convert.py codetest 0 0 && python e2e_code.py   (remove content/codetest.html after)"""
+"""Synthetic one-page 'coding book' PDF for testing code-block extraction (indentation from x offsets, code inside
+exercises). python tools/make_codetest_pdf.py work/codetest.pdf
+  BOOK_PDF=work/codetest.pdf python tools/convert.py codetest 0 0 && BOOK_PDF=work/codetest.pdf python tools/verify.py content/codetest.html
+  (remove content/codetest.html afterwards). Running code in the browser is tested by the reader app's e2e test."""
 import sys, pymupdf
 
 d = pymupdf.open(); p = d.new_page(width=504, height=720); y = 100; cw = 0.6 * 9.5   # Courier char width at 9.5 pt
