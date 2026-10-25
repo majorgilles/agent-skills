@@ -1,5 +1,6 @@
 """Book package for Gilles's Omnibook Reader: one file, dist/<id>.omnibook (a zip), holding
-  book.json        format, id, title, author, license_html, code_lang, chapters [{slug, title}], audit summary
+  book.json        format, id, title, author, year, cover, license_html, code_lang, chapters [{slug, title}], audit summary
+  cover.<ext>      the cover image (cover.py: profile.json book.cover, else found on Open Library)
   outline.json     per chapter: sections with their exercise ids (progress model, contents)
   chapters/<slug>.html   the verified content fragment; every block carries data-b="<n>" (bookmark/annotation anchor)
   figs/...         exact crops (SVG / PNG)
@@ -10,6 +11,7 @@ The reader app does the rest (fonts, themes, bookmarks, highlights and notes, ex
 import sys, re, json, html, zipfile, pathlib, datetime
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 from bookprofile import PROFILE
+from cover import cover_and_year
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTENT, FIGS = ROOT / 'content', ROOT / 'site' / 'figs'
@@ -110,7 +112,10 @@ def main():
             p = ROOT / 'site' / f
             if p.exists(): z.write(p, f, compress_type=zipfile.ZIP_STORED if p.suffix == '.png' else zipfile.ZIP_DEFLATED)
             else: print('  missing figure file', f)
-        meta = {'format': FORMAT, 'id': B['id'], 'title': B['title'], 'author': B.get('author', ''),
+        image, ext, year = cover_and_year(B)
+        if image: z.writestr(f'cover.{ext}', image, compress_type=zipfile.ZIP_STORED)
+        meta = {'format': FORMAT, 'id': B['id'], 'title': B['title'], 'author': B.get('author', ''), 'year': year,
+                'cover': f'cover.{ext}' if image else None,
                 'license_html': B.get('license_html', ''), 'code_lang': PROFILE.get('code_lang', 'other'),
                 'chapters': chapters, 'built': datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'),
                 'audit': audit_summary(), 'ocr': PROFILE.get('ocr', False)}
