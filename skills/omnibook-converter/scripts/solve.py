@@ -175,6 +175,9 @@ def main():
     sols = {k: {'html': v['html']} for k, v in cache.items() if current.get(k) == v['hash']}
     files['generated.json'] = json.dumps({'model': f'Claude ({model})', 'created': datetime.date.today().isoformat(),
                                           'solutions': sols}, ensure_ascii=False).encode()
+    meta = json.loads(files['book.json'])            # a new build: readers holding the package without these take it again
+    meta['built'] = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')
+    files['book.json'] = json.dumps(meta, ensure_ascii=False, indent=1).encode()
     tmp = path.with_suffix('.tmp')
     with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as z:
         for n, data in files.items(): z.writestr(n, data)
