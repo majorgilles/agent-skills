@@ -18,6 +18,8 @@ EXERCISES, SOLUTIONS, ITEM_EXCL = rx('exercises'), rx('solutions'), rx('item_exc
 PROOF, FIG_CAP, LST_CAP, TBL_CAP = rx('proof'), rx('figure_caption'), rx('listing_caption'), rx('table_caption')
 CONT, ANNO, ANNO_TXT = PAT['code_continuation'], rx('code_annotation'), rx('annotation_text')
 UNSTYLED = PROFILE['ocr']        # an OCR text layer has no bold or italic: structure comes from patterns and position
+PLAIN_ITEMS = UNSTYLED or not PROFILE['patterns']['item_bold']   # exercise numbers in regular type: cut by sequence
+PLAIN_SOLUTIONS = UNSTYLED or not PROFILE['patterns'].get('solution_item_bold', PROFILE['patterns']['item_bold'])
 
 
 def raster_dpi(pno, r):
@@ -26,6 +28,7 @@ def raster_dpi(pno, r):
     best = 0
     for info in PDF[pno].get_image_info():
         b = pymupdf.Rect(info['bbox'])
+        if info['width'] == 1 and info['height'] == 1: continue   # a stretched 1×1 image is a solid bar, sharp in SVG
         if (b & r).get_area() > 0.2 * min(max(b.get_area(), 1), max(r.get_area(), 1)) and b.width > 0:   # image in the crop
             best = max(best, info['width'] / b.width * 72)
     return min(300, max(150, round(best))) if best else 0
@@ -42,11 +45,13 @@ def crop(pno, r, path):
         return r, path
     tmp = pymupdf.open(); tmp.insert_pdf(PDF, from_page=pno, to_page=pno)
     p = tmp[0]; M = p.rect; r = r & M
-    for a in [(0, 0, M.x1, r.y0), (0, r.y1, M.x1, M.y1), (0, r.y0, r.x0, r.y1), (r.x1, r.y0, M.x1, r.y1)]:
-        p.add_redact_annot(pymupdf.Rect(a))
+    k = r + (-24, -24, 24, 24)                                 # keep a margin: a glyph whose font box overhangs the crop
+    for a in [(0, 0, M.x1, k.y0), (0, k.y1, M.x1, M.y1), (0, k.y0, k.x0, k.y1), (k.x1, k.y0, M.x1, k.y1)]:   # (big delimiters,
+        if not pymupdf.Rect(a).is_empty: p.add_redact_annot(pymupdf.Rect(a))   # radicals) would be redacted; the crop box clips
     p.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_REMOVE, graphics=pymupdf.PDF_REDACT_LINE_ART_REMOVE_IF_COVERED,
                        text=pymupdf.PDF_REDACT_TEXT_REMOVE)
-    p.set_cropbox(r)
+    o = p.cropbox.tl                                   # a CropBox offset inside the MediaBox (printer's marks)
+    p.set_cropbox(r + (o.x, o.y, o.x, o.y))
     (ROOT / 'site' / path).parent.mkdir(parents=True, exist_ok=True)
     (ROOT / 'site' / path).write_text(p.get_svg_image(text_as_path=True), encoding='utf-8')
     return r, path
@@ -258,6 +263,7 @@ def convert(slug, a, b, skip=(), solutions=False):
 
     chapter_no, chapter_word, dropcap, wrap, title_row = None, '', '', 0, False
     cur_sec = None                 # "chapter.section" of the open section (keys exercise blocks headed only "EXERCISES")
+    unnumbered = 0                 # unnumbered sections so far in this file (a section pattern with only a title group)
     title_pno = None               # page of the chapter title
     last_base, pitches, para_y0, para_at = None, [], 0, None
     done_tables, fronts = set(), 0
@@ -325,12 +331,13 @@ def convert(slug, a, b, skip=(), solutions=False):
         if m and (ft.bold or UNSTYLED or not PAT['section_bold']) and row.size > SZ['section_min'] and (abs(row.x0 - left) < 6 or UNSTYLED) \
                 and not (SUBSECTION and SUBSECTION.match(text)):
             close_all()
-            g = m.groups()                                     # (chapter, section, title), or (section, title): "§2. TITLE"
+            g = m.groups()                                     # (chapter, section, title), (section, title): "§2. TITLE", or (title)
+            if len(g) == 1: unnumbered += 1; g = (str(unnumbered), g[0])
             ch, sec, title = (chapter_no or slug, *g) if len(g) == 2 else g
             sid, title, cur_sec = f'{ch}.{sec}', title.strip(), f'{ch}.{sec}'
-            if len(g) == 2: sid = text[:m.start(2)].strip()      # the number as printed ("§2.")
+            if len(m.groups()) < 3: sid = text[:m.start(2)].strip() if len(m.groups()) == 2 else ''   # "§2." as printed, or none
             open_sec(2, f'<section class="sec" id="s{ch}-{sec}" data-title="{html.escape(title, quote=True)}">')
-            out.append(f'<h2><span class="num">{sid}</span> {html.escape(title)}</h2>')
+            out.append(f'<h2>{f"<span class={chr(34)}num{chr(34)}>{sid}</span> " if sid else ""}{html.escape(title)}</h2>')
             last_row_y = row.y1
             continue
         m = SUBSECTION.match(text) if SUBSECTION else None
@@ -398,10 +405,11 @@ def convert(slug, a, b, skip=(), solutions=False):
             def prev_word(i):
                 return next((v.text.strip() for k, v in reversed(row.items[:i]) if k == 'span' and v.text.strip()), '')
             seq = [max((it['num'] for it in ex['items']), default=0)]   # the last number, as this row's cuts are taken
-            def unstyled_cut(i):                               # OCR: an item number opens the row or a column, in sequence
+            def unstyled_cut(i):                               # OCR or plain numbers: an item number opens the row or a column, in sequence
                 v, last = row.items[i][1], seq[0]
                 n = int(NUM.match(v.text.strip()).group(1))
-                at_col = any(abs(v.x0 - left - c) < 25 for c in ex['cols']) if ex['cols'] else v.x0 - left < 40
+                tol = 25 if UNSTYLED else 8                    # OCR boxes drift; a text PDF's number column does not
+                at_col = any(abs(v.x0 - left - c) < tol for c in ex['cols']) if ex['cols'] else v.x0 - left < 40
                 prev = next((w for k, w in reversed(row.items[:i]) if k == 'math' or (k == 'span' and w.text.strip())), None)
                 gap = prev is None or v.x0 - prev.x1 > 12
                 new_col = prev is not None and v.x0 - prev.x1 > 20 and last < n <= last + 2   # "8. 16   9. 24   10. 32" on one row
@@ -409,7 +417,7 @@ def convert(slug, a, b, skip=(), solutions=False):
                 if ok: seq[0] = n
                 return ok
             cuts = [i for i, (k, v) in enumerate(row.items) if k == 'span' and NUM.match(v.text.strip())
-                    and (v.bold or (UNSTYLED and unstyled_cut(i))) and not (ITEM_EXCL and ITEM_EXCL.search(prev_word(i)))]
+                    and (v.bold or ((PLAIN_SOLUTIONS if solutions else PLAIN_ITEMS) and unstyled_cut(i))) and not (ITEM_EXCL and ITEM_EXCL.search(prev_word(i)))]
             if not cuts:
                 if ex.get('last') == 'group' and all(v.bold for k, v in row.items if k == 'span' and v.text.strip()):
                     ex['groups'][ex['group']] += ' ' + C.inline(pno, row); continue

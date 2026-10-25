@@ -15,12 +15,16 @@ Only keys that differ from `scripts/bookprofile.py` DEFAULTS (Book of Proof) are
 | `fonts.bold/italic/math_italic` | style detection | |
 | `fonts.fix` | custom-encoded math glyphs → Unicode, per font | glyph sheet: map only what you identify for certain |
 | `fonts.extension/radical` | big-delimiter fonts and radical glyphs (placed by position, cropped when unmapped) | |
+| `fonts.radical_crop` | `false` keeps √ as text instead of cropping each radical with its bar (bars drawn as tiny images make crops noisy) | |
 | `sizes.small/normal_min/title/dropcap/section_min` | script size, body floor, chapter titles, drop caps, section headings (pt) | survey sizes |
 | `layout.para_pitch` | baseline distance (× usual line pitch) that starts a paragraph | default 1.4 |
 | `layout.para_indent/display_indent/space_gap` | first-line indent, display (centred formula) indent, word-gap width | |
 | `patterns.chapter_marker` / `chapter_inline` | "CHAPTER 4" row / "3 Title" on the title row | |
 | `patterns.section/subsection(_min)/section_bold` | numbered headings | |
 | `patterns.exercises/solutions/item_exclusions/labels/proof/proof_end` | exercise blocks, solution appendix, theorem labels | survey heading patterns |
+| `patterns.item_bold` | `false` when exercise numbers are set in regular type (items are then cut where numbers continue the sequence) | an exercise page |
+| `patterns.solution_item_bold` | the same for the solutions appendix (default: `item_bold`) | a solutions page |
+| `patterns.section` with one group | unnumbered section headings (the title only): sections are numbered 1, 2, … per file | |
 | `patterns.figure_caption/listing_caption/table_caption/caption_bold` | captions (attached to their figure/listing/table) | |
 | `patterns.callouts` | lead words of notes (NOTE, TIP, WARNING…) | |
 | `patterns.code_continuation/code_annotation/annotation_text` | wrap marker (`[CA]`), end-of-line cueball (`#A`), its explanation row | Manning profile |

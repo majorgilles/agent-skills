@@ -112,7 +112,7 @@ def main():
             p = ROOT / 'site' / f
             if p.exists(): z.write(p, f, compress_type=zipfile.ZIP_STORED if p.suffix == '.png' else zipfile.ZIP_DEFLATED)
             else: print('  missing figure file', f)
-        image, ext, year = cover_and_year(B)
+        image, ext, year = cover_and_year(B, pdf=None if PROFILE['ocr'] else ROOT / PROFILE['pdf'])
         if image: z.writestr(f'cover.{ext}', image, compress_type=zipfile.ZIP_STORED)
         meta = {'format': FORMAT, 'id': B['id'], 'title': B['title'], 'author': B.get('author', ''), 'year': year,
                 'cover': f'cover.{ext}' if image else None,

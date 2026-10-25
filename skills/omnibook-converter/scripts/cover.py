@@ -1,7 +1,7 @@
 """The book's cover image and year of publication, for the reader's library (book.json `cover`, `year`).
 package.py calls cover_and_year(): profile.json book.cover (an image path, or false for none) and book.year win;
-otherwise Open Library is searched by title and author, and the result is kept in work/cover.json and work/cover.<ext>
-so a rebuild does not search again. The reader looks a cover up itself for a package without one.
+then a text PDF's own cover page (a full-page image on page 1); otherwise Open Library is searched by title and
+author, and the result is kept in work/cover.json and work/cover.<ext> so a rebuild does not search again. The reader looks a cover up itself for a package without one.
   python tools/cover.py dist/<id>.omnibook [--image PATH|URL] [--year YYYY]   puts a cover into a built package
 Without --image it searches Open Library; it bumps book.json `built`, so every reader takes the new package."""
 import sys, re, json, zipfile, pathlib, datetime, urllib.parse, urllib.request
@@ -43,13 +43,29 @@ def read_image(src):
     return p.read_bytes(), p.suffix.lstrip('.').lower().replace('jpeg', 'jpg')
 
 
-def cover_and_year(book, work=ROOT / 'work'):
-    """profile.json `book` -> (image bytes or None, extension, year or None), searching Open Library once per book."""
+def pdf_cover(pdf):
+    """The PDF's own cover: a first page that is one full-page image (publishers' e-books) -> JPEG bytes, else None.
+    Not for scans, where every page is an image."""
+    import pymupdf
+    page = pymupdf.open(pdf)[0]
+    images = page.get_image_info()
+    if len(images) != 1 or len(page.get_text().strip()) > 20: return None
+    if pymupdf.Rect(images[0]['bbox']).get_area() < 0.9 * page.rect.get_area(): return None
+    return page.get_pixmap(matrix=pymupdf.Matrix(1.5, 1.5)).tobytes('jpeg', jpg_quality=88)
+
+
+def cover_and_year(book, work=ROOT / 'work', pdf=None):
+    """profile.json `book` -> (image bytes or None, extension, year or None): book.cover, else the PDF's own cover page
+    (`pdf`, a text PDF), else Open Library, searched once per book."""
     year = book.get('year')
     if book.get('cover') is False: return None, '', year
     if book.get('cover'):
         data, ext = read_image(str(ROOT / book['cover']) if not re.match(r'https?://', book['cover']) else book['cover'])
         return data, ext, year
+    own = pdf_cover(pdf) if pdf else None
+    if own:
+        print('  cover: the PDF\'s own cover page')
+        return own, 'jpg', year
     cache = work / 'cover.json'
     if cache.exists():
         c = json.loads(cache.read_text(encoding='utf-8'))

@@ -61,9 +61,10 @@ Python needs `pymupdf`; audit pixel checks need Playwright + Chromium (`CHROMIUM
    orphans; a shortfall must be the book's (grep the page text), not the parser's.
 9. **Package**: `python tools/package.py` → `dist/<id>.omnibook`; add it with `omnibook add dist/<id>.omnibook` (local
    library) or the reader's file picker (it then syncs to Google Drive if signed in).
-   It adds the cover image and year of publication on its own (`scripts/cover.py`: Open Library by title and author,
-   kept in `work/cover.*`); check the printed result and set `book.year` (the edition's year) or `book.cover` (an
-   image path or URL, or `false`) in profile.json when the match is a different edition.
+   It adds the cover image and year of publication on its own (`scripts/cover.py`: the PDF's own cover page when page 1
+   is a full-page image, else Open Library by title and author, kept in `work/cover.*`); check the printed result and
+   set `book.year` (the edition's year) or `book.cover` (an image path or URL, or `false`) in profile.json when the
+   match is a different edition.
    `python tools/cover.py dist/<id>.omnibook --image URL --year YYYY` changes the cover of a built package.
 10. **Worked solutions** (every book): `python tools/solve.py dist/<id>.omnibook` adds `generated.json`, an AI-written
    worked solution per exercise that the reader shows collapsed and labelled under each exercise (read before

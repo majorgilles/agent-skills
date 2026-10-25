@@ -35,6 +35,7 @@ DEFAULTS = {
                 'Fourier-Math-BlackBoard': dict(zip('CNQRZ', 'ℂℕℚℝℤ')), 'rsfs10': {'F': 'ℱ', 'P': '𝒫'}},
         'extension': ['Fourier-Math-Extension'],   # big-delimiter fonts: glyph boxes lie, placed by overlap; unmapped glyphs -> crop
         'radical': {'Fourier-Math-Symbols': 'p'},  # font -> raw char of the radical sign (its box sits above the ink)
+        'radical_crop': True,              # crop each radical with its bar; false: keep √ as text (placed on the row below)
     },
     'sizes': {'small': 8.5, 'normal_min': 9, 'title': 13, 'dropcap': 20, 'section_min': 10.5},
     'layout': {
@@ -53,6 +54,7 @@ DEFAULTS = {
         'exercises': r'^Exercises for (Section|Chapter) ([\d.]+)',
         'solutions': r'^(Sections?) (\d+\.\d+)$|^(Chapter) (\d+)( Exercises)?$',
         'item_exclusions': r'(Case|Step|Part)$',           # "Case 1." inside a proof is not an exercise number
+        'item_bold': True,                 # exercise numbers are bold; false: regular type, cut where they continue the sequence
         'labels': ['Definition', 'Theorem', 'Proposition', 'Lemma', 'Corollary', 'Example', 'Fact'],
         'proof': r'^Proof',                # italic lead word of a proof
         'proof_end': '■|□|∎',              # end-of-proof marks

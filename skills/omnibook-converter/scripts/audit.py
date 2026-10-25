@@ -10,7 +10,7 @@ reading order, this accounts for *everything* printed on the pages:
 Writes work/audit/<slug>.json (+ PNGs of anything unaccounted for) and exits 1 if anything is unaccounted for."""
 import sys, os, re, json, html, pathlib, collections, pymupdf
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from layout import page_spans, page_furniture, _white, TOP, BOTTOM, OCR
+from layout import page_spans, page_furniture, loose_marks, _white, TOP, BOTTOM, OCR
 from bookprofile import pdf_path
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -95,11 +95,13 @@ def drawings_check(pages, crops, doc, out_dir, slug):
     for pno in pages:
         page = doc[pno]
         ignore, panels, marks = page_furniture(page, page_spans(page))
+        loose = loose_marks(page)                                    # lone bars and marks drawn as images: layout
         boxes = [c + (-2, -2, 2, 2) for c in crops.get(pno, [])]
         items = [(i, pymupdf.Rect(d['rect']), 'drawing') for i, d in enumerate(page.get_drawings())
                  if i not in ignore and not _white(d)]           # white on white paper carries no ink
         items += [(None, pymupdf.Rect(b['bbox']), 'image') for b in page.get_text('dict')['blocks'] if b['type'] == 1
-                  and not (OCR and pymupdf.Rect(b['bbox']).get_area() > 0.6 * page.rect.get_area())]   # the scan itself
+                  and not (OCR and pymupdf.Rect(b['bbox']).get_area() > 0.6 * page.rect.get_area())   # the scan itself
+                  and tuple(pymupdf.Rect(b['bbox'])) not in loose]
         for i, r, kind in items:
             if r.y1 < TOP or r.y0 > BOTTOM: continue                 # running heads, footers
             if r.height < 1.2 and (r.width > 250 or r.width < 30): continue   # rules (decoration) / bar slivers

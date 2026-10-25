@@ -30,7 +30,7 @@ class Span:
             return g
         self.text = ''.join(glyph(c) for c in s['chars'] if c['c'] != '̸').replace('\xa0', ' ')
         self.hard = self.font in EXT and any(c['c'] not in fix for c in s['chars'] if c['c'].strip())
-        self.hard |= self.font in RADICAL and RADICAL[self.font] in ''.join(c['c'] for c in s['chars'])
+        self.hard |= F['radical_crop'] and self.font in RADICAL and RADICAL[self.font] in ''.join(c['c'] for c in s['chars'])
         self.role = ''            # '', 'sup' or 'sub' (set per row)
 
     @property
@@ -71,13 +71,15 @@ class Row:
 
 def page_spans(page):
     slashes = [(ch[2][0], ch[2][1]) for sp in page.get_texttrace() for ch in sp['chars'] if ch[0] == 0x338]
-    out = []
-    for b in page.get_text('rawdict')['blocks']:
-        for l in b.get('lines', []):
-            for s in l['spans']:
-                if s['chars'] and TOP <= s['bbox'][1] <= BOTTOM:   # keep space-only spans: they are the word gaps
-                    out.append(Span(s, slashes))
-    return out
+    spans = lambda flags: [s for b in page.get_text('rawdict', flags=flags)['blocks'] for l in b.get('lines', []) for s in l['spans']]
+    raw = spans(pymupdf.TEXTFLAGS_RAWDICT)
+    odd = lambda s: s['font'] in EXT or (not F['radical_crop'] and s['font'] in RADICAL   # (cropped radicals are placed
+                                         and any(c['c'] == RADICAL[s['font']] for c in s['chars']))   # by their font box)
+    if any(map(odd, raw)):                                     # big delimiters and radicals: font boxes reach far past
+        key = lambda s: (s['font'], round(s['origin'][0], 1), round(s['origin'][1], 1))   # the ink, so take the
+        exact = {key(s): s for s in spans(pymupdf.TEXTFLAGS_RAWDICT | pymupdf.TEXT_ACCURATE_BBOXES) if odd(s)}   # outlines' boxes
+        raw = [exact.get(key(s), s) if odd(s) else s for s in raw]
+    return [Span(s, slashes) for s in raw if s['chars'] and TOP <= s['bbox'][1] <= BOTTOM]   # space-only spans are word gaps
 
 
 def margin(pno):
@@ -174,6 +176,33 @@ def ocr_figures(name='figures'):
     return _OCR_FIGS[name]
 
 
+def solid_mark(block):
+    """A 1×1-pixel image stretched into a small filled rectangle (Ghostscript output): a rule or bar over a heading, a
+    fraction bar or overbar, a vertical rule, or an end-of-proof mark, unless it is part of a drawing (loose_marks)."""
+    r = pymupdf.Rect(block['bbox'])
+    return block.get('width') == 1 and block.get('height') == 1 and (r.height <= 5 or r.width <= 1.2 or (r.width <= 6 and r.height <= 12))
+
+
+MATH_NAMES = r'\b(?:sin|cos|tan|cot|sec|csc|log|exp|lim|max|min|sup|inf|mod|gcd|lcm|det|deg|ker|arg)\b'
+
+def loose_marks(page):
+    """Rects of the solid marks that stand alone (a heading bar, a fraction bar or overbar, a proof mark): layout.
+    Marks that touch other marks in a group of 3 or more, or a group wider and taller than 12pt, draw a figure
+    (lines and arcs rasterised into many stretched 1×1 images): those are figure ink."""
+    marks = [pymupdf.Rect(b['bbox']) for b in page.get_text('dict')['blocks'] if b['type'] == 1 and solid_mark(b)]
+    groups = []
+    for m in marks:
+        hit = [g for g in groups if any((m + (-1, -1, 1, 1)).intersects(o) for o in g)]
+        for g in hit: groups.remove(g)
+        groups.append(sum(hit, []) + [m])
+    loose = set()
+    for g in groups:
+        box = pymupdf.Rect(g[0])
+        for o in g: box |= o
+        if len(g) < 3 and min(box.width, box.height) <= 12: loose |= {tuple(o) for o in g}
+    return loose
+
+
 def figure_boxes(page, spans, ignore=()):
     """Clusters of vector drawings (and raster images) that are real figures, grown to include their text labels."""
     rects = []
@@ -185,8 +214,15 @@ def figure_boxes(page, spans, ignore=()):
         if r.height < 1.2 and (r.width > 250 or r.width < 30): continue   # full-width rules; fraction bars are math
         rects.append(r + (-0.5 * (r.width < 1), -0.5 * (r.height < 1), 0.5 * (r.width < 1), 0.5 * (r.height < 1)))  # strokes have no area
     area = page.rect.get_area()
-    rects += [pymupdf.Rect(b['bbox']) for b in page.get_text('dict')['blocks'] if b['type'] == 1 and TOP < b['bbox'][3] and b['bbox'][1] < BOTTOM
+    images = [b for b in page.get_text('dict')['blocks'] if b['type'] == 1 and TOP < b['bbox'][3] and b['bbox'][1] < BOTTOM
               and not (OCR and pymupdf.Rect(b['bbox']).get_area() > 0.6 * area)]    # a scanned page's own image
+    loose = loose_marks(page)
+    rects += [pymupdf.Rect(b['bbox']) for b in images if tuple(pymupdf.Rect(b['bbox'])) not in loose]
+    marks = [pymupdf.Rect(m) for m in loose]
+    while True:                                                # marks touching figure ink (a square's sides) are figure ink
+        joined = [m for m in marks if any((m + (-3, -3, 3, 3)).intersects(r) for r in rects)]
+        if not joined: break
+        rects += joined; marks = [m for m in marks if m not in joined]
     rects += [pymupdf.Rect(r) for r in ocr_figures().get(str(page.number), [])]     # non-text ink found by ocr.py
     prose_lines = sorted({round(sp.base) for sp in spans if sp.prose and sp.text.strip()})
     def line_of(r):                                            # the prose baseline a thin drawing sits beside, if any
@@ -289,7 +325,7 @@ def build_rows(spans, bars=()):
     """Rows are defined by normal-size text baselines; small spans (scripts, fraction parts, matrix entries)
     join the nearest baseline, and so do full-size spans sitting on or under a fraction bar; big delimiters join
     the row they overlap most."""
-    ext = [s for s in spans if s.ext or (s.hard and '√' in s.text)]  # glyph boxes lie; place by position
+    ext = [s for s in spans if s.ext or (s.font in RADICAL and '√' in s.text)]  # glyph boxes lie; place by position
     small = [s for s in spans if s not in ext and (s.size < SMALL or not s.text.strip())]
     giant = [s for s in spans if s.size > SZ['dropcap'] and len(s.text.strip()) == 1]   # drop caps
     normal = [s for s in spans if s not in ext and s not in small and s not in giant]
@@ -299,26 +335,48 @@ def build_rows(spans, bars=()):
             r = rows[-1]; r[3].append(s); r[1] = min(r[1], s.y0); r[2] = max(r[2], s.y1)
         else:
             rows.append([s.base, s.y0, s.y1, [s], [s.base]])
+    for r in list(rows):                                       # a superscript in a big title ("nth"): smaller type set
+        big = [o for o in rows if o is not r and len(r[3]) <= 3 and abs(o[0] - r[0]) < 0.6 * max(t.size for t in o[3])
+               and all(t.size < 0.85 * max(u.size for u in o[3]) for t in r[3])
+               and all(any(min(abs(t.x0 - u.x1), abs(u.x0 - t.x1)) < 2 for u in o[3]) for t in r[3] if t.text.strip())]
+        if big and r in rows:                                  # beside the larger words, raised: one row with them
+            o = big[0]; o[3] += r[3]; o[1] = min(o[1], r[1]); o[2] = max(o[2], r[2]); rows.remove(r)
     def on_bar(s):
         return any(min(s.x1, b.x1) - max(s.x0, b.x0) > 0.5 * (s.x1 - s.x0) and (abs(s.y0 - b.y1) < 3 or abs(b.y0 - s.y1) < 3) for b in bars)
     for r in sorted(rows, key=lambda r: len(''.join(s.text for s in r[3]).strip())):   # full-size fraction parts (m/n)
-        if len(''.join(s.text for s in r[3]).strip()) > 40 or any(s.textfont or s.mono for s in r[3]): continue
+        if len(''.join(s.text for s in r[3]).strip()) > 40 or any(s.mono or (s.textfont and re.search(r'[^\W\d_]{3,}', s.text))
+                                                                   for s in r[3]): continue   # words are text, not a fraction part
         if not all(on_bar(s) for s in r[3] if s.text.strip()): continue
         x0, x1 = min(s.x0 for s in r[3]), max(s.x1 for s in r[3])
-        near = [o for o in rows if o is not r and abs(o[0] - r[0]) < 9 and len(o[3]) > len(r[3])
-                and min(s.x0 for s in o[3]) - 2 < x0 and x1 < max(s.x1 for s in o[3]) + 2]
+        fraction_part = lambda q: all(on_bar(s) for s in q[3] if s.text.strip())
+        between = lambda o: any(q is not r and q is not o and (q[0] - o[0]) * (r[0] - o[0]) < 0 and abs(q[0] - o[0]) < 9
+                                and fraction_part(q) for q in rows) \
+            or any((b - o[0]) * (r[0] - o[0]) < 0 and abs(b - o[0]) < 9 for b in o[4][1:])   # (one already merged in)
+        near = [o for o in rows if o is not r and abs(o[0] - r[0]) < 9 and (between(o) or len(o[3]) > len(r[3])
+                and min(s.x0 for s in o[3]) - 2 < x0 and x1 < max(s.x1 for s in o[3]) + 2)]
         if near:
             o = min(near, key=lambda o: abs(o[0] - r[0]))
             o[3] += r[3]; o[1] = min(o[1], r[1]); o[2] = max(o[2], r[2]); o[4] += r[4]; rows.remove(r)
     gap = lambda r, s: min(abs(b - s.base) for b in r[4])     # to the nearest baseline (a merged numerator's too)
+    after_delim = lambda s: any(abs(e.x1 - s.x0) < 1.5 and e.y0 - 3 <= s.y0 <= e.y1 for e in ext)   # ")²": raised further
+    def bar_of(s):                                             # the bar a script sits on or under (a small fraction)
+        return next((b for b in bars if min(s.x1, b.x1) - max(s.x0, b.x0) > 0.5 * (s.x1 - s.x0)
+                     and (abs(s.y0 - b.y1) < 3 or abs(b.y0 - s.y1) < 3)), None)
     for s in small:
+        b = bar_of(s) if s.text.strip() else None
+        if b is not None and rows:                             # its line is the one the bar sits in, not the nearest baseline
+            best = min(rows, key=lambda r: abs((r[1] + r[2]) / 2 - (b.y0 + b.y1) / 2))
+            if abs((best[1] + best[2]) / 2 - (b.y0 + b.y1) / 2) < 8: best[3].append(s); continue
         best = min(rows, key=lambda r: gap(r, s), default=None)
-        if best is not None and gap(best, s) < 8: best[3].append(s)
+        if best is not None and (gap(best, s) < 8 or (gap(best, s) < 12 and after_delim(s))): best[3].append(s)
         elif s.text.strip(): rows.append([s.base, s.y0, s.y1, [s], [s.base]])
     for s in ext:
         best = max(rows, key=lambda r: min(s.y1, r[2]) - max(s.y0, r[1]), default=None)
         if rows and '√' in s.text:                            # radical glyph box sits above its ink: take the row below
-            min(rows, key=lambda r: abs(r[1] - s.y1))[3].append(s)
+            to = lambda r: min(abs(t.base - s.y1) for t in r[3])   # a text radical (TeX cmsy): its box ends at the radicand's
+            near = min(rows, key=to)                             # baseline (a script's, in a small fraction)
+            if F['radical_crop'] or to(near) > 3: near = min(rows, key=lambda r: abs(r[1] - s.y1))
+            near[3].append(s)
         elif best is not None and min(s.y1, best[2]) - max(s.y0, best[1]) > 0: best[3].append(s)
         else: rows.append([s.base, s.y0, s.y1, [s], [s.base]])
     rows += [[s.base, s.y0, s.y1, [s], [s.base]] for s in giant]
@@ -330,19 +388,25 @@ def hard_math(row, bars):
     unmapped big delimiters, radicals, and anything touching a fraction bar. Returns merged rects."""
     ms = [s for s in row.spans if not s.textfont and not s.mono]
     seeds = [s.rect() for s in ms if s.hard]
-    seeds += [s.rect() for s in ms if not s.ext and s.size >= NORMAL and abs(s.base - row.base) > 3 and s.text.strip()]   # full-size stacked parts
+    radical = lambda s: s.font in RADICAL and '√' in s.text            # its box sits above the row: no stacked part
+    seeds += [s.rect() for s in ms if not s.ext and not radical(s) and s.size >= NORMAL and abs(s.base - row.base) > 3
+              and s.text.strip()]                                     # full-size stacked parts
     for i, a in enumerate(ms):
         for b in ms[i + 1:]:
             if min(a.x1, b.x1) - max(a.x0, b.x0) > 1.5 and abs(a.base - b.base) > 3 and (a.size < NORMAL or b.size < NORMAL) \
                     and a.text.strip() and b.text.strip():
                 seeds.append(a.rect() | b.rect())
+    figures = [s for s in row.spans if s.textfont and s.text.strip() and len(s.text.strip()) <= 8
+               and not re.search(r'[^\W\d_]{3,}', s.text)]          # numerals and letters set in the text font (m/n, 12/8)
     for bar in bars:
         if row.y0 - 6 < bar.y0 < row.y1 + 4:
             box = bar + (0, -0.6, 0, 0.6)                      # bars are zero-height; give them area
-            for s in ms:                                       # what sits directly on or under the bar belongs to it
-                ov = min(s.x1, bar.x1) - max(s.x0, bar.x0)
-                if s.text.strip() and ov > 0.5 * (s.x1 - s.x0) and (abs(s.y0 - bar.y1) < 3 or abs(bar.y0 - s.y1) < 3):
-                    box |= s.rect()
+            on = lambda s: min(s.x1, bar.x1) - max(s.x0, bar.x0) > 0.5 * (s.x1 - s.x0) and s.text.strip()
+            over = lambda s: on(s) and abs(bar.y0 - s.y1) < 3
+            under = lambda s: on(s) and abs(s.y0 - bar.y1) < 3
+            parts = ms + (figures if any(map(over, figures + ms)) and any(map(under, figures + ms)) else [])
+            for s in parts:                                    # what sits directly on or under the bar belongs to it
+                if over(s) or under(s): box |= s.rect()
             seeds.append(box)
     boxes = []
     for r in seeds:                                            # grow over touching math spans (not prose)
@@ -383,6 +447,9 @@ def analyse(page):
     drawings = page.get_drawings()
     bars = [pymupdf.Rect(d['rect']) for i, d in enumerate(drawings) if i not in ignore
             and d['rect'].height < 1.2 and d['rect'].width < 250 and not any(pymupdf.Rect(d['rect']).intersects(f) for f in figs)]
+    vinculum = lambda r: any(t.font in RADICAL and '√' in t.text and abs(t.x1 - r.x0) < 1.5 and t.y0 <= r.y0 <= t.y1 for t in spans)
+    bars += [r for r in map(pymupdf.Rect, loose_marks(page))   # bars drawn as stretched images
+             if r.height < 1.2 and 2 < r.width < 250 and TOP < r.y0 < BOTTOM and not vinculum(r) and not any(r.intersects(f) for f in figs)]
     rows = build_rows(text_spans, bars)
     for t in tables:                                            # header-rule-only tables: grow down over aligned rows
         if not t.open: continue
@@ -407,20 +474,66 @@ def analyse(page):
     inline += [f for f in formulas if beside(f)]
     figs = [f for f in figs if f not in inline and f.width > 10 and f.height > 10] + [f for f in formulas if f not in inline]   # a formula alone on its line
     home = {id(f): min(rows, key=lambda r: abs((r.y0 + r.y1) / 2 - (f.y0 + f.y1) / 2)) for f in inline}   # one row each
-    owner = {i: min(rows, key=lambda r: abs((r.y0 + r.y1) / 2 - b.y0)) for i, b in enumerate(bars)} if rows else {}
+    on_it = lambda r, b: any(min(t.x1, b.x1) - max(t.x0, b.x0) > 0.5 * (t.x1 - t.x0) and t.text.strip()
+                             and (abs(t.y0 - b.y1) < 3 or abs(b.y0 - t.y1) < 3) for t in r.spans)
+    owner = {i: min(rows, key=lambda r: (not on_it(r, b), abs((r.y0 + r.y1) / 2 - b.y0)))   # the row whose spans sit on or
+             for i, b in enumerate(bars)} if rows else {}                                       # under the bar, else nearest
+    row_boxes = {id(row): hard_math(row, [b for i, b in enumerate(bars) if owner[i] is row]) + [f for f in inline if home[id(f)] is row]
+                 for row in rows}
+    wordy = lambda t: re.search(r'[^\W\d_]{3,}', re.sub(MATH_NAMES, ' ', t)) is not None   # prose, not cos or lim
+    absorbed = set()
+    for row in rows:                                           # a line of math only (no words) with several crops or a big
+        if id(row) in absorbed: continue
+        words = any(t.textfont and wordy(t.text) for t in row.spans)   # delimiter: one crop, whole
+        tall = any(t.ext and t.y1 - t.y0 > 1.4 * t.size for t in row.spans)
+        boxes = row_boxes[id(row)]
+        crops = [b for b in boxes if b not in inline]
+        ink = sorted(row.spans, key=lambda t: t.x0)
+        columns = any(b.x0 - a.x1 > 25 for a, b in zip(ink, ink[1:]) if a.text.strip() and b.text.strip())   # two columns of items
+        if words or columns or not ((len(crops) >= 2 and sum(b.width for b in crops) > 0.4 * (row.x1 - row.x0)) or (tall and boxes)):
+            continue
+        whole = pymupdf.Rect(row.spans[0].rect())
+        for t in row.spans: whole.include_rect(t.rect())
+        for b in boxes: whole.include_rect(b)
+        for o in rows:                                         # its exponents, numerators, denominators set as rows of their own
+            if o is not row and whole.x0 - 2 < o.x0 and o.x1 < whole.x1 + 2 \
+                    and (whole + (0, -12, 0, 12)).intersects(pymupdf.Rect(o.x0, o.y0, o.x1, o.y1)) \
+                    and not any(t.textfont and wordy(t.text) for t in o.spans):
+                for t in o.spans: whole.include_rect(t.rect())
+                for b in row_boxes[id(o)]: whole.include_rect(b)
+                row_boxes[id(o)] = [b for b in row_boxes[id(o)] if b in inline]; absorbed.add(id(o))
+        row_boxes[id(row)] = [whole] + [b for b in boxes if b in inline]
+    inside = lambda s, b: (s.rect() & (b + (-1.8, -1.8, 1.8, 1.8))).get_area() > 0.5 * max(s.rect().get_area(), 0.01)
+    member = {}                                                # span -> its box, by the audit's rule (the published crop,
+    for _ in range(4):                                         # 0.8pt padded, padded 1pt more); the box grows to cover
+        grown = False                                          # its own row's spans, until no box grows
+        for row in rows:
+            for s in row.spans:
+                if id(s) in member: continue
+                box = next((b for b in row_boxes[id(row)] if inside(s, b)), None)
+                if box is not None: member[id(s)] = box; box.include_rect(s.rect()); grown = True
+        if not grown: break
+    for row in rows:                                           # then a neighbour's tall crop takes what it shows (no growth:
+        for s in row.spans:                                    # a grown crop would reach further rows)
+            if id(s) not in member:
+                box = next((b for o in rows if o is not row for b in row_boxes[id(o)] if b not in inline and inside(s, b)), None)
+                if box is not None: member[id(s)] = box
     for row in rows:
         row.bullet = any(row.y0 - 2 < (m.y0 + m.y1) / 2 < row.y1 + 2 and 0 <= row.x0 - m.x1 < 30 for m in marks)
         row.panel = next((p for p in panels if (p + (-1, -1, 1, 1)).contains(row.spans[0].rect())), None)
         row.table = next((t for t in tables if t.bbox.y0 < (row.y0 + row.y1) / 2 < t.bbox.y1
                           and t.bbox.x0 - 3 < row.x0 and row.x1 < t.bbox.x1 + 3), None)
         if row.table: row.table.rows.append(row)
-        boxes = hard_math(row, [b for i, b in enumerate(bars) if owner[i] is row]) + [f for f in inline if home[id(f)] is row]
+        boxes = row_boxes[id(row)]
         placed, used, last = [], set(), None
         for s in row.spans:
-            box = next((b for b in boxes if (s.rect() & b).get_area() > 0.5 * max(s.rect().get_area(), 0.01)), None)
+            box = member.get(id(s))
             if box is None: placed.append((s.x0, 'span', s))
+            elif not any(box is b for b in boxes): continue    # shown in a neighbouring row's crop
             elif id(box) not in used: used.add(id(box)); placed.append((box.x0, 'math', box + (-0.8, -0.8, 0.8, 0.8)))
-        placed += [(b.x0, 'math', b) for b in boxes if id(b) not in used and b in inline]
+        held = {id(b) for b in member.values()}                # a crop holding only other rows' spans is still shown
+        placed += [(b.x0, 'math', b + (-0.8, -0.8, 0.8, 0.8) if b not in inline else b) for b in boxes
+                   if id(b) not in used and (b in inline or id(b) in held)]
         for x0, kind, v in sorted(placed, key=lambda t: t[0]):
             if last is not None and x0 - last[0] > GAP and not last[1].endswith(' ') and not (kind == 'span' and v.text.startswith(' ')):
                 row.items.append(('space', None))                # word gap encoded as positioning, not a space glyph
