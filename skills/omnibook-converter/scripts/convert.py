@@ -3,7 +3,7 @@ figures and hard math become exact SVG crops. Book-specific constants live in pr
   python tools/convert.py ch01 14 44 [skip-first skip-last]"""
 import sys, re, html, pathlib, pymupdf
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
-from layout import analyse, rejoin, margin, unglue
+from layout import analyse, rejoin, margin, unglue, Row
 from bookprofile import PROFILE, rx, pdf_path
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -145,18 +145,73 @@ def code_html(lines):
     return f'<pre class="code" data-lang="{CODE_LANG}"><code>{body}</code></pre>'
 
 
+def heading_html(C, pno, row, title):
+    """A heading's title with its inline styling (math italic x in "cos(x)"), the number printed before it left out;
+    plain when the row's text does not end with the title."""
+    items, text = list(row.items), ''
+    while items and not ''.join(v.text for k, v in items if k == 'span').strip().startswith(title.strip()[:1] or ' ') \
+            or (items and items[0][0] == 'space'):
+        items.pop(0)
+    shown = C.inline(pno, row, items).strip() if items else ''
+    plain = re.sub(r'\s+', '', html.unescape(re.sub(r'<[^>]+>', '', shown)))
+    return shown if plain == re.sub(r'\s+', '', title) else html.escape(title)
+
 def table_html(C, pno, t):
     """A detected Table as <table>: each text row's items go to the column under their centre; a row whose first
     column is empty continues the cells of the row above (wrapped cell text)."""
     def col(x):
         return max(0, min(len(t.cols) - 2, next((k for k in range(len(t.cols) - 1) if x < t.cols[k + 1]), len(t.cols) - 2)))
     body, head = [], []
+    centre = lambda k, v: pymupdf.Point((v.x0 + v.x1) / 2, (v.y0 + v.y1) / 2)
+    cells_hold_all = t.grid and all(any(c is not None and c.contains(centre(k, v)) for g in t.grid for c in g)
+                                    for r in t.rows for k, v in r.items if k != 'space')
+    if cells_hold_all:                                         # ruled cells: each cell's lines, read inside the cell (a
+                                                               # wrapped cell, an exponent above its line)
+        for n, grow in enumerate(t.grid):
+            cells = []
+            for cell in grow:
+                items, last = [], None
+                for row in sorted(t.rows, key=lambda r: r.y0):
+                    for k, v in row.items:
+                        if k == 'space':
+                            if last is not None: items.append((k, v, last))
+                            continue
+                        last = v if cell is not None and cell.contains(centre(k, v)) else None
+                        if last is not None: items.append((k, v, v))
+                spans = [v for k, v, _ in items if k == 'span']
+                lines = []                                     # the cell's own lines; Row() sets sup/sub against them
+                for v in sorted(spans, key=lambda v: v.base):
+                    if lines and abs(v.base - lines[-1][0]) < 0.5 * v.size: lines[-1][1].append(v)
+                    else: lines.append([v.base, [v]])
+                main = [ls for ls in lines if max(x.size for x in ls[1]) >= 0.85 * max(x.size for x in spans)] or lines
+                for ls in lines:
+                    if ls not in main: min(main, key=lambda m: abs(m[0] - ls[0]))[1].extend(ls[1])
+                rows = [Row(ls[1]) for ls in main]
+                line_of = lambda v: min(range(len(rows)), key=lambda i: abs((rows[i].y0 + rows[i].y1) / 2 - (v.y0 + v.y1) / 2)) if rows else 0
+                parts = [[] for _ in rows] or [[]]
+                for k, v, anchor in sorted(items, key=lambda it: (line_of(it[2]), it[2].x0)):
+                    parts[line_of(anchor)].append((k, v))
+                cells.append(' '.join(x for x in (C.inline(pno, row or t.rows[0], p).strip()
+                                                  for row, p in zip(rows or [None], parts)) if x))
+            for f in t.figs:
+                hit = [k for k, c in enumerate(grow) if c is not None and c.contains(pymupdf.Point((f.x0 + f.x1) / 2, (f.y0 + f.y1) / 2))]
+                for k in hit: cells[k] = (cells[k] + ' ' + C.figure(pno, f)).strip()
+            (head if n == 0 and t.header_y is not None else body).append(cells)
+        tr = lambda cells, tag: '<tr>' + ''.join(f'<{tag}>{c}</{tag}>' for c in cells) + '</tr>'
+        b = t.bbox
+        return (f'<table class="tbl" data-region="{pno}:{b.x0:.1f},{b.y0:.1f},{b.x1:.1f},{b.y1:.1f}">'
+                + (f'<thead>{"".join(tr(r, "th") for r in head)}</thead>' if head else '')
+                + f'<tbody>{"".join(tr(r, "td") for r in body)}</tbody></table>')
     for row in sorted(t.rows, key=lambda r: r.y0):
         cells, last = [[] for _ in t.cols[:-1]], 0
         for kind, v in row.items:
             if kind == 'space': cells[last].append((kind, v)); continue
             last = col((v.x0 + v.x1) / 2); cells[last].append((kind, v))
         html_cells = [C.inline(pno, row, c).strip() for c in cells]
+        for f in t.figs:                                       # pictures: the cell under their centre, on this row
+            if min(t.rows, key=lambda r: abs((r.y0 + r.y1) / 2 - (f.y0 + f.y1) / 2)) is row:
+                k = col((f.x0 + f.x1) / 2)
+                html_cells[k] = (html_cells[k] + ' ' + C.figure(pno, f)).strip()
         target = head if t.header_y is not None and (row.y0 + row.y1) / 2 < t.header_y else body
         if target and not html_cells[0]:
             for k, h in enumerate(html_cells):
@@ -309,11 +364,16 @@ def convert(slug, a, b, skip=(), solutions=False):
             else:
                 dropcap, wrap = text, 2
             continue
+        if chapter_no == '' and row.size >= SZ['title'] and re.fullmatch(r'\d+', text.strip()):   # the number set apart
+            chapter_no = text.strip(); continue                # from its CHAPTER mark (a big digit in a box)
         # --- chapter / part titles (big) ---
-        if row.size >= SZ['title'] and re.search(r'[^\W\d_]{2,}', text) \
+        if row.size >= SZ['title'] and (re.search(r'[^\W\d_]{2,}', text) or (CHAPTER_MARK and CHAPTER_MARK.match(text))) \
                 and not (UNSTYLED and chapter_no and pno != title_pno):  # OCR: one chapter per file; a tall formula row is no title
             m = CHAPTER_MARK.match(text) if CHAPTER_MARK else None
-            if m: close_all(); chapter_no, chapter_word, title_row = m.group(1), text[:m.start(1)], False; continue   # as printed
+            if m:                                              # as printed; a spaced-out "C H A P T E R" closes up
+                close_all(); title_row = False
+                chapter_no, chapter_word = m.group(1) or '', re.sub(r'(?<=\S) (?=\S)', '', text[:m.start(1)]).strip() + ' '
+                continue
             if title_row and out[-1].startswith('<h1'):       # a title set on several lines
                 out[-1] = out[-1][:-5] + ' ' + html.escape(text) + '</h1>'; last_row_y = row.y1; continue
             close_all()
@@ -341,7 +401,7 @@ def convert(slug, a, b, skip=(), solutions=False):
             sid, title, cur_sec = f'{ch}.{sec}', title.strip(), f'{ch}.{sec}'
             if len(m.groups()) < 3: sid = text[:m.start(2)].strip() if len(m.groups()) == 2 else ''   # "§2." as printed, or none
             open_sec(2, f'<section class="sec" id="s{ch}-{sec}" data-title="{html.escape(title, quote=True)}">')
-            out.append(f'<h2>{f"<span class={chr(34)}num{chr(34)}>{sid}</span> " if sid else ""}{html.escape(title)}</h2>')
+            out.append(f'<h2>{f"<span class={chr(34)}num{chr(34)}>{sid}</span> " if sid else ""}{heading_html(C, pno, row, title)}</h2>')
             last_row_y = row.y1
             continue
         m = SUBSECTION.match(text) if SUBSECTION else None
@@ -461,7 +521,8 @@ def convert(slug, a, b, skip=(), solutions=False):
         caption = (ft.bold or not PAT['caption_bold']) and any(p and p.match(text) for p in (FIG_CAP, TBL_CAP))
         item = indent > 3 and re.match(r'^\d+\.(?!\d)', text) is not None   # numbered list inside the body
         display = indent > LAY['display_indent'] and not bullet and not caption and not item and not callout
-        wrapped = cont is not None and any(abs(row.x0 - x) < 3 for x in cont) and not spaced \
+        wrapped = cont is not None and (abs(row.x0 - cont[0]) < 3 or (abs(row.x0 - cont[1]) < 3 and indent <= LAY['para_indent'])) \
+            and not spaced \
             and not (bullet or callout or caption or starts_label or item)   # a wrapped line of a list item, note or caption
         new = not para or indent > LAY['para_indent'] or spaced or starts_label or starts_proof or bullet \
             or caption or display or item or callout or para_cls == 'display'

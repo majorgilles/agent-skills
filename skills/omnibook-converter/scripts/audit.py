@@ -226,8 +226,8 @@ def pixels_check(src, doc, browser):
             if path.suffix == '.png':                                # compare at the PNG's own resolution
                 a = pymupdf.Pixmap(str(path)); est = max(a.width / r.width, a.height / r.height) * 72   # the export dpi: the one that
                 size = lambda d: (lambda q: (q.width, q.height))(doc[pno].get_pixmap(matrix=pymupdf.Matrix(d / 72, d / 72), clip=r))
-                z = next((d / 72 for d in (round(est), int(est), int(est) + 1, 150, 300)   # renders the PNG's own size
-                          if size(d) == (a.width, a.height)), round(est) / 72)             # (rounding alone misses by 1)
+                z = min((round(est), int(est), int(est) + 1, 150, 300),        # renders the PNG's own size, or the
+                        key=lambda d: sum(abs(x - y) for x, y in zip(size(d), (a.width, a.height)))) / 72   # nearest (rounding)
                 if a.alpha: a = pymupdf.Pixmap(a, 0)
             else:
                 z = 3 if r.width * r.height < 4000 else 2   # small crops: finer grid
@@ -347,13 +347,29 @@ def tables_check(pages, crops, regions, doc):
             # a gap next to a label is a list set in columns (exercises, parts: read by number, part_columns)
         rules = [pymupdf.Rect(d['rect']) for d in doc[pno].get_drawings() if d['rect'].height < 1.5 and d['rect'].width > 30]
         rules += [pymupdf.Rect(r) for r in loose_marks(doc[pno]) if r[3] - r[1] < 1.5 and r[2] - r[0] > 30]
+        _, panels, _ = page_furniture(doc[pno], page_spans(doc[pno]))   # boxed text: its frame's edges are no table rules
         for top in rules:                                      # two rules of one extent with lines of text between: a table
+            if any((p + (-2, -2, 2, 2)).contains(top) for p in panels): continue
             low = [b for b in rules if abs(b.x0 - top.x0) < 3 and abs(b.x1 - top.x1) < 3 and 0 < b.y0 - top.y0 < 160]
             if not low or any(b.y0 - top.y0 < 0 and abs(b.x0 - top.x0) < 3 and abs(b.x1 - top.x1) < 3 and top.y0 - b.y0 < 160 for b in rules):
                 continue                                       # not the topmost rule of its group
-            box = top | max(low, key=lambda b: b.y0)
-            inner = {round(y) for r, y, sz, ch in chars if box.y0 < y < box.y1 and box.x0 - 3 < r.x0 and r.x1 < box.x1 + 3}
-            if len(inner) >= 2 and not any(t.intersects(box) for t in tabs) and not any(b.contains(box + (1, 1, -1, -1)) for b in boxes):
+            box = pymupdf.Rect(top.x0, top.y0, top.x1, max(b.y1 for b in low))   # (a stroked line's rect is empty: no |)
+            inner = {}
+            for r, y, sz, ch in chars:
+                if box.y0 < y < box.y1 and box.x0 - 3 < r.x0 and r.x1 < box.x1 + 3: inner.setdefault(round(y), []).append(r)
+            runs = []                                          # ink of all its lines overlaid: a table leaves blank
+            for y, r in sorted(((y, r) for y, rs in inner.items() for r in rs), key=lambda t: t[1].x0):   # strips between
+                if runs and r.x0 - runs[-1][1] < 2.5: runs[-1][1] = max(runs[-1][1], r.x1); runs[-1][2].add(y)   # columns,
+                else: runs.append([r.x0, r.x1, {y}])                                          # prose fills its width
+            full = [u for u in runs if len(u[2]) >= 2 and len(u[2]) * 2 >= len(inner)]   # a column: text on most rows
+            def listed(u):                                     # most of a column's lines start with an item number
+                starts = {}
+                for r, y, sz, ch in sorted(chars, key=lambda c: c[0].x0):
+                    if u[0] - 0.1 <= r.x0 and r.x1 <= u[1] + 0.1 and box.y0 < y < box.y1: starts.setdefault(round(y), []).append(ch)
+                return sum(bool(re.match(r'\d+\.', ''.join(cs[:4]))) for cs in starts.values()) * 2 >= max(1, len(starts))
+            numbered = any(listed(u) for u in full[1:])
+            if numbered: continue                              # exercises set in columns: a list, read by number
+            if len(inner) >= 3 and len(full) >= 2 and not any(t.intersects(box) for t in tabs) and not any(b.contains(box + (1, 1, -1, -1)) for b in boxes):
                 found.append({'page': pno, 'y': round(top.y0), 'lines': len(inner), 'ruled': True})
         run = []
         for y in sorted(gaps) + [None]:

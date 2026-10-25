@@ -167,7 +167,12 @@ def split_at_bars(page, raw):
 
 def page_spans(page):
     slashes = [(ch[2][0], ch[2][1]) for sp in page.get_texttrace() for ch in sp['chars'] if ch[0] == 0x338]
-    spans = lambda flags: [s for b in page.get_text('rawdict', flags=flags)['blocks'] for l in b.get('lines', []) for s in l['spans']]
+    def upright(l):                                            # a rotated line (a vertical "C H A P T E R") is read as one
+        if abs(l['dir'][0] - 1) < 0.01: return l['spans']      # span in its own order, set on the line's lower edge
+        chars = [dict(c, bbox=l['bbox'], origin=(l['bbox'][0], l['bbox'][3])) for s in l['spans'] for c in s['chars']]
+        return [dict(l['spans'][0], chars=chars, bbox=l['bbox'], origin=(l['bbox'][0], l['bbox'][3]),
+                     text=''.join(c['c'] for c in chars))] if chars else []
+    spans = lambda flags: [s for b in page.get_text('rawdict', flags=flags)['blocks'] for l in b.get('lines', []) for s in upright(l)]
     raw = spans(pymupdf.TEXTFLAGS_RAWDICT)
     odd = lambda s: s['font'] in EXT or (not F['radical_crop'] and s['font'] in RADICAL   # (cropped radicals are placed
                                          and any(c['c'] == RADICAL[s['font']] for c in s['chars']))   # by their font box)
@@ -211,7 +216,8 @@ def page_furniture(page, spans):
             alone = not any(o != r and o.intersects(r + (-4, -4, 4, 4)) for o in ink)               # not part of a drawing
             if alone and line and 0 <= min(s.x0 for s in line) - r.x1 < 30 and not any(s.rect().intersects(r) for s in line):
                 marks.append(r); ignore.add(i); continue
-        if d['type'] == 'f' and 4 < r.width < 60 and 4 < r.height < 30:   # badge: a word printed on a small shape
+        big = [s for s in spans if s.text.strip() and s.size >= SZ['title'] and r.contains(pymupdf.Point((s.x0 + s.x1) / 2, (s.y0 + s.y1) / 2))]
+        if d['type'] == 'f' and ((4 < r.width < 60 and 4 < r.height < 30) or (big and r.width < 130 and r.height < 150)):   # badge
             on = [s for s in spans if s.text.strip() and r.contains(pymupdf.Point((s.x0 + s.x1) / 2, (s.y0 + s.y1) / 2))]
             line = [s for s in spans if s.text.strip() and s.y0 - 2 < (r.y0 + r.y1) / 2 < s.y1 + 2 and s.x1 <= r.x0 + 1]
             if on and len(''.join(s.text for s in on).strip()) <= 12 and (
@@ -234,7 +240,9 @@ def page_furniture(page, spans):
                 panels.append(r); ignore.add(i)
     for box, ids in frames(drawings):                          # boxes drawn around text (outlines, boxed facts)
         words = sum(len(w) for s in spans if box.contains(s.rect()) for w in re.findall(r'[^\W\d_]{2,}', s.text))
-        if words > 40 and not ids & ignore:
+        divided = any(r.width < 1.5 and box.x0 + 3 < r.x0 < box.x1 - 3 and r.y0 < box.y0 + 3 and r.y1 > box.y1 - 3
+                      for r in (pymupdf.Rect(d['rect']) for d in drawings))   # a row of a grid table, not a box
+        if words > 40 and not ids & ignore and not divided:
             panels.append(box); ignore |= ids
     return ignore, panels, marks
 
@@ -366,6 +374,8 @@ class Table:
     """A table on one page: bbox, column boundaries (x), y of the rule under the header row (or None)."""
     def __init__(self, bbox, cols, header_y=None):
         self.bbox, self.cols, self.header_y, self.rows, self.open = bbox, cols, header_y, [], False
+        self.figs = []            # pictures set in its cells
+        self.grid = None          # a fully ruled table: [[cell rect or None per column] per row]
 
 
 def page_tables(page, ignore, panels=()):
@@ -417,6 +427,7 @@ def page_tables(page, ignore, panels=()):
         cols = sorted({round(c[0], 1) for c in t.cells if c} | {round(c[2], 1) for c in t.cells if c})
         first = [c for c in t.cells if c and abs(c[1] - b.y0) < 1]
         tables.append(Table(b, cols, max(c[3] for c in first) if first else None))
+        tables[-1].grid = [[pymupdf.Rect(c) if c else None for c in row.cells] for row in t.rows]
         used |= {i for i, d in enumerate(page.get_drawings()) if (pymupdf.Rect(d['rect']) & (b + (-1, -1, 1, 1))) == pymupdf.Rect(d['rect'])}
     return tables, used
 
@@ -425,39 +436,55 @@ _RULED = {}                                                    # (file, page) ->
 
 
 def rule_tables(page, raw):
-    """Tables ruled with stretched 1×1 images (Ghostscript), whose rules have no column segments: a rule and a lower
-    one of the same extent less than 160pt apart, with text between. Columns are the runs of ink (character boxes of
-    every line, the header's too) separated by a gap of 2.5pt or more in every line; at least two of them. A rule
-    between the two marks the header; without one, a line just above the top rule is the header (no top rule drawn).
-    -> [(bbox, column boundaries, header y or None, rule rects)]."""
-    rules = sorted((r for r in map(pymupdf.Rect, loose_marks(page)) if r.height < 1.5 and r.width > 30 and TOP < r.y0 < BOTTOM),
-                   key=lambda r: r.y0)
+    """Tables ruled across their full width with no column segments: stretched 1×1 images (Ghostscript) or drawn lines
+    (truth tables side by side). A rule and the lowest rule of the same extent reached in steps under 80pt, with text
+    between. Columns are the runs of ink (character boxes of every line, the header's too) separated by a gap of 2.5pt
+    or more in every line: two to eight, each with text on at least two lines and half of them (a boxed fact or a
+    label beside a statement is no table), none starting with an item number (exercises set in columns are a list).
+    The first rule between them marks the header; without one, a line just above the top rule is the header (no top
+    rule drawn). -> [(bbox, column boundaries, header y or None, rule rects)]."""
+    drawn = [pymupdf.Rect(d['rect']) for d in page.get_drawings() if d['rect'].height < 1.5 and d['rect'].width > 60]
+    drawn = [r for r in drawn if sum(abs(o.x0 - r.x0) < 3 and abs(o.x1 - r.x1) < 3 and abs(o.y0 - r.y0) < 160 for o in drawn) >= 3]
+    # (drawn rules come three or more of one extent, top, header, bottom: two alike are fraction bars)
+    rules = sorted((r for r in list(map(pymupdf.Rect, loose_marks(page))) + drawn
+                    if r.height < 1.5 and r.width > 30 and TOP < r.y0 < BOTTOM), key=lambda r: r.y0)
     chars = [c for sp in raw for c in sp['chars'] if c['c'].strip()]
     found, used = [], set()
+    same = lambda a, b: abs(a.x0 - b.x0) < 3 and abs(a.x1 - b.x1) < 3
     for i, top in enumerate(rules):
         if tuple(top) in used: continue
-        bottom = next((r for r in rules[i + 1:] if abs(r.x0 - top.x0) < 3 and abs(r.x1 - top.x1) < 3 and r.y0 - top.y0 < 160), None)
+        bottom = None
+        for r in rules[i + 1:]:
+            if same(r, top) and r.y0 - (bottom or top).y0 < 80: bottom = r
         if bottom is None: continue
         within = lambda c, y0, y1: y0 < c['origin'][1] < y1 and top.x0 - 3 < c['bbox'][0] and c['bbox'][2] < top.x1 + 3
         body = [c for c in chars if within(c, top.y1, bottom.y0)]
-        mid = [r for r in rules if top.y0 < r.y0 < bottom.y0 and top.x0 - 3 < r.x0 and r.x1 < top.x1 + 3]
+        mid = [r for r in rules if top.y0 + 0.5 < r.y0 < bottom.y0 - 0.5 and top.x0 - 3 < r.x0 and r.x1 < top.x1 + 3]
         above = [] if mid else [c for c in chars if within(c, top.y0 - 14, top.y0)]
         lines = {round(c['origin'][1]) for c in above}
         if any(round(c['origin'][1]) in lines and not within(c, top.y0 - 14, top.y0) for c in chars):
             above = []                                         # a line of a paragraph (it runs past the rules), not a header
+        rows = {round(c['origin'][1]) for c in body + above}
         if len({round(c['origin'][1]) for c in body}) < 2: continue
         runs = []
         for c in sorted(body + above, key=lambda c: c['bbox'][0]):
-            if runs and c['bbox'][0] - runs[-1][1] < 2.5: runs[-1][1] = max(runs[-1][1], c['bbox'][2])
-            else: runs.append([c['bbox'][0], c['bbox'][2]])
+            if runs and c['bbox'][0] - runs[-1][1] < 2.5: runs[-1][1] = max(runs[-1][1], c['bbox'][2]); runs[-1][2].append(c)
+            else: runs.append([c['bbox'][0], c['bbox'][2], [c]])
         if not 2 <= len(runs) <= 8: continue
+        if any(len({round(c['origin'][1]) for c in u[2]}) < max(2, len(rows) / 2) for u in runs): continue
+        first = lambda u: ''.join(c['c'] for c in sorted(u[2], key=lambda c: (round(c['origin'][1]), c['bbox'][0]))[:4])
+        if sum(bool(re.match(r'\d+\.', first(u))) for u in runs) >= 2: continue
+        box = pymupdf.Rect(top.x0, top.y0, top.x1, bottom.y1) + (-1, -1, 1, 1)
+        if any(top == r or bottom == r for r in drawn) and any(
+                box.contains(r) and not (r.height < 1.5 and r.width > 0.9 * top.width) and not (r.width < 1.5 and r.height >= 8)
+                for r in (pymupdf.Rect(d['rect']) for d in page.get_drawings())):
+            continue                                           # drawn lines with ticks, arrows or curves: a figure
         y0 = min(c['bbox'][1] for c in above) - 1 if above else top.y0 - 1
         head = (mid[0].y0 + mid[0].y1) / 2 if mid else (top.y0 + top.y1) / 2 if above else None
         cols = [top.x0] + [(a[1] + b[0]) / 2 for a, b in zip(runs, runs[1:])] + [top.x1]
         found.append((pymupdf.Rect(top.x0, y0, top.x1, bottom.y1 + 1), cols, head, [top, bottom, *mid]))
         used |= {tuple(r) for r in (top, bottom, *mid)}
     return found
-
 
 def split_at_columns(raw, tables):
     """A span that runs across a column boundary of a ruled table ("3n n" over two cells) is split there."""
@@ -663,7 +690,8 @@ def analyse(page):
     more = [t for t in _RULED.get((page.parent.name, page.number), []) if not any(t[0].intersects(o.bbox) for o in tables)]
     tables += [Table(bbox, cols, head) for bbox, cols, head, _ in more]
     rules = [r for t in more for r in t[3]]
-    ignore = ignore | ruled
+    ignore = ignore | ruled | {i for i, d in enumerate(page.get_drawings()) if min(d['rect'].width, d['rect'].height) < 1.5
+                               and any((t[0] + (-2, -2, 2, 2)).contains(pymupdf.Rect(d['rect'])) for t in more)}   # its rules
     figs = figure_boxes(page, spans, ignore)
     formulas = [pymupdf.Rect(r) for r in ocr_figures('formulas').get(str(page.number), [])]   # OCR formula lines: math, not figures
     in_fig = lambda s: any((s.rect() & f).get_area() > 0.5 * s.rect().get_area() for f in figs + [g + (-1, -1, 1, 1) for g in formulas])   # as the audit pads
@@ -677,6 +705,15 @@ def analyse(page):
              and r not in rules]
     rows = build_rows(text_spans, bars)
     rows = part_columns(rows)
+    split = []                                                 # a table set beside another or beside text shares its
+                                                               # lines: one row per table and one for the rest
+    for row in rows:
+        where = lambda sp: next((k for k, t in enumerate(tables) if t.bbox.contains(pymupdf.Point((sp.x0 + sp.x1) / 2, (sp.y0 + sp.y1) / 2))), None)
+        groups = {}
+        for sp in row.spans: groups.setdefault(where(sp), []).append(sp)
+        if not [k for k in groups if k is not None] or len(groups) < 2: split.append(row); continue   # (or beside text)
+        split += [Row(g) for k, g in sorted(groups.items(), key=lambda kv: min(sp.x0 for sp in kv[1])) if ''.join(sp.text for sp in g).strip()]
+    rows = split
     for t in tables:                                            # header-rule-only tables: grow down over aligned rows
         if not t.open: continue
         below = sorted((r for r in rows if r.y0 > t.header_y), key=lambda r: r.y0)
@@ -699,6 +736,9 @@ def analyse(page):
     formulas = alone
     inline += [f for f in formulas if beside(f)]
     figs = [f for f in figs if f not in inline and f.width > 10 and f.height > 10] + [f for f in formulas if f not in inline]   # a formula alone on its line
+    for t in tables:                                           # a picture inside a table goes in its cell
+        t.figs = [f for f in figs if t.bbox.contains(pymupdf.Point((f.x0 + f.x1) / 2, (f.y0 + f.y1) / 2))]
+        figs = [f for f in figs if not any(f is g for g in t.figs)]
     home = {id(f): min(rows, key=lambda r: abs((r.y0 + r.y1) / 2 - (f.y0 + f.y1) / 2)) for f in inline}   # one row each
     on_it = lambda r, b: any(min(t.x1, b.x1) - max(t.x0, b.x0) > 0.5 * (t.x1 - t.x0) and t.text.strip()
                              and (abs(t.y0 - b.y1) < 3 or abs(b.y0 - t.y1) < 3) for t in r.spans)

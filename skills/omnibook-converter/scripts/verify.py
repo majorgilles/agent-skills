@@ -18,6 +18,7 @@ CONT, ANNO = PROFILE['patterns']['code_continuation'], rx('code_annotation')
 def norm(t):
     for a, b in LIG.items(): t = t.replace(a, b)
     t = re.sub(r'[-—–]', ' ', re.sub(r'\d', '', t))            # digits are math; dashes split words
+    t = re.sub(r'\b(?:[^\W\d_] ){3,}[^\W\d_]\b', lambda m: m.group(0).replace(' ', ''), t)   # "C H A P T E R" set spaced out
     return [w for w in (re.sub(r"[^\w']", '', x).lower() for x in t.split()) if w and w not in MATHWORDS]
 
 
@@ -37,8 +38,14 @@ def pdf_words(a, b, skip=(), solutions=False):
         allp = sum(len(s.text.replace(' ', '')) for s in page_spans(d[i]) if s.prose)
         for r in rows:
             if r.table is not None:                     # tables: compared as one multiset each (cells wrap)
-                if not tables or tables[-1][0] is not r.table: tables.append([r.table, []])
-                tables[-1][1] += norm(''.join(v.text if k == 'span' and not v.mathital and not v.mono else ' ' for k, v in r.items))
+                entry = next((t for t in tables if t[0] is r.table), None)   # side-by-side tables share their lines
+                if entry is None: entry = [r.table, []]; tables.append(entry)
+                col = lambda v: sum(x < (v.x0 + v.x1) / 2 for x in r.table.cols[1:-1])   # cells are words apart
+                cells = {}
+                for k, v in r.items:
+                    if k == 'span': cells.setdefault(col(v), []).append(v.text if not v.mathital and not v.mono else ' ')
+                    elif cells: cells[max(cells)].append(' ')
+                entry[1] += norm(' '.join(''.join(c) for _, c in sorted(cells.items())))
                 continue
             vis = [v for k, v in r.items if k == 'span' and v.text.strip()]
             if vis and all(v.mono for v in vis) and not any(k == 'math' for k, _ in r.items):
