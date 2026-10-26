@@ -25,6 +25,10 @@ When the user asks to install, link or set up these skills:
    moved to `~/.agents/skills-backup/<timestamp>/` first. A link to a skill that this repo no longer has is
    removed. The script never deletes a skill folder.
 
+   It also sets `core.hooksPath` to `.githooks`, the repo's tracked hooks. From then on, every `git pull` runs
+   `install.sh` by itself: `post-merge` for a merge or fast-forward, `post-rewrite` for `git pull --rebase`. git
+   never turns on a repo's hooks by itself, so each machine needs this first run by hand.
+
 3. Check the links. This prints nothing when every skill is linked correctly:
 
    ```bash
@@ -43,7 +47,8 @@ When the user asks to install, link or set up these skills:
 
 4. Tell the user how many skills are linked, and list any folder that the script moved to the backup.
 
-Run the script again after you pull new skills or add one. It is safe to run any number of times.
+After a pull, the hooks run the script. Run it by hand after you add a skill, or when `git config core.hooksPath`
+does not print `.githooks`. It is safe to run any number of times.
 
 ## Add a skill
 

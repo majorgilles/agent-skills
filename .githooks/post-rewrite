@@ -1,0 +1,4 @@
+#!/bin/bash
+# `git pull --rebase` runs this hook instead of post-merge.
+[ "$1" = "rebase" ] && exec "$(git rev-parse --show-toplevel)/install.sh"
+exit 0

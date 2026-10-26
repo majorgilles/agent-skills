@@ -1,0 +1,3 @@
+#!/bin/bash
+# After a pull or merge, link new skills and remove links to deleted ones.
+exec "$(git rev-parse --show-toplevel)/install.sh"

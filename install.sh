@@ -5,6 +5,8 @@ set -euo pipefail
 repo=$(cd "$(dirname "$0")" && pwd)
 backup=~/.agents/skills-backup/$(date +%Y%m%d-%H%M%S)
 
+git -C "$repo" config core.hooksPath .githooks
+
 targets=(~/.agents/skills ~/.claude/skills)
 [ -d ~/.pi/agent ] && targets+=(~/.pi/agent/skills)
 
