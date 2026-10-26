@@ -31,6 +31,16 @@ git clone git@github.com:majorgilles/agent-skills.git ~/dev/agent-skills
 so every later `git pull` runs `install.sh` again by itself. Run it by hand after adding a skill locally. To use a
 single skill without cloning, copy its folder into one of those directories.
 
+### A clone made before the hooks existed
+
+git never turns on a repo's hooks by itself, so an older clone needs one manual run after it pulls them:
+
+```bash
+cd ~/dev/agent-skills && git pull && ./install.sh
+```
+
+To check that the hooks are on, run `git -C ~/dev/agent-skills config core.hooksPath`. It prints `.githooks`.
+
 ## History
 
 This repo replaced the separate `claude-skills`, `course-creator`, `double-loop-tdd`, `pdf-book-to-study-site` and
